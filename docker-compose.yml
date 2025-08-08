@@ -1,0 +1,28 @@
+version: "3.9"
+services:
+  client:
+    build: ./client
+    container_name: mtm-client
+    ports: ["8080:80"]
+    environment:
+      - VITE_MIDDLEWARE_WS=ws://localhost:8081/ws
+    depends_on: [middleware]
+
+  middleware:
+    build: ./middleware
+    container_name: mtm-middleware
+    ports: ["8081:8081"]
+    environment:
+      - BACKEND_WS_URL=ws://backend:8082/ingest
+    depends_on: [backend]
+
+  backend:
+    build: ./backend
+    container_name: mtm-backend
+    ports: ["8082:8082"]
+    env_file: .env
+    environment:
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - TRANSCRIBE_MEDICAL_SPECIALTY=${TRANSCRIBE_MEDICAL_SPECIALTY}
+      - TRANSCRIBE_MEDICAL_TYPE=${TRANSCRIBE_MEDICAL_TYPE}

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Medical Transcription POC</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; }
+    .row { display: flex; gap: 12px; align-items: center; }
+    pre { background: #111; color: #0f0; padding: 12px; min-height: 220px; overflow: auto; }
+    button { padding: 10px 16px; border-radius: 8px; border: 1px solid #333; cursor: pointer; }
+    .live { color: #d00; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>Medical Voice Transcription (POC)</h1>
+  <div class="row">
+    <button id="startBtn">Start Recording</button>
+    <button id="stopBtn" disabled>Stop</button>
+    <span id="status">Idle</span>
+  </div>
+  <h3>Live Transcript</h3>
+  <pre id="transcript"></pre>
+  <script src="./app.js"></script>
+</body>
+</html>
