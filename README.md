@@ -115,8 +115,8 @@ docker compose up -d --build
 
 ### 4. Access the Application
 
-- **Frontend**: http://localhost:8080
-- **Backend API**: http://localhost:8000
+- **Frontend**: http://localhost:8080/simple_client.html
+- **Backend API**: ws://localhost:8000/ws
 - **Health Check**: http://localhost:8000/health
 
 ## Usage
