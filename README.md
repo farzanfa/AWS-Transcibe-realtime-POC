@@ -1,171 +1,297 @@
-# Medical Transcription POC
+# Real-time Speech Transcription POC
 
-Real-time medical speech-to-text using **Docker**, **WebSockets**, and **AWS Transcribe Medical** with **S3** persistence.
+ A production-lean proof of concept for real-time speech transcription using AWS Transcribe Streaming, built with a FastAPI backend and an HTML/JavaScript frontend, both containerized with Docker.
 
 ## Architecture
 
 ```
-[Doctor’s Browser]
-      │
-      ▼
-[Client Container: Web App]
-      │ WebSocket (binary audio chunks)
-      ▼
-[Middleware Container: Audio Processor]
-      │ WebSocket (PCM audio frames)
-      ▼
-[Backend Container: AWS Transcribe Medical]
-      │ AWS Streaming API (bi-directional)
-      │
-      ├──> [Real-time Transcript to Client]
-      └──> [Continuous Transcript Save to S3]
+Browser Microphone → HTML/JS Client (WebRTC) → FastAPI Backend (WebSocket) → AWS Transcribe Streaming → Real-time Transcripts → S3 Storage
 ```
 
-### Sequence Diagram (Mermaid)
+## Features
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Doc as Doctor (Mic)
-    participant Client as Client (Web App)
-    participant MW as Middleware (FastAPI)
-    participant BE as Backend (FastAPI)
-    participant AWS as AWS Transcribe Medical
-    participant S3 as Amazon S3
+- 🎤 **Real-time Audio Capture**: WebRTC-based microphone input through the browser
+- 🔄 **Live Transcription**: Real-time speech-to-text using AWS Transcribe Streaming API
+- 💾 **Automatic Saving**: Final transcripts saved to S3 with timestamp filenames
+- 🐳 **Dockerized**: Complete containerization for easy deployment
+- 🏗️ **Infrastructure as Code**: Terraform configuration for AWS resources
+- 📊 **Production-Ready**: Proper logging, error handling, and health checks
 
-    Doc->>Client: Click "Start" → getUserMedia + MediaRecorder
-    Client->>MW: WS /ws (open)
-    Note right of Client: Sends WebM/Opus audio chunks (≈250ms)
+## Technical Specifications
 
-    MW->>BE: WS /ingest (open)
-    MW->>BE: { type: "start", format: pcm_s16le, rate:16000, channels:1 }
+### Audio Format
+- **Sample Rate**: 16kHz
+- **Channels**: Mono
+- **Encoding**: Linear PCM (16-bit)
 
-    BE->>AWS: StartMedicalStreamTranscription (bi‑di stream)
+### WebSocket Messages
 
-    loop While recording
-        Client-->>MW: WebM/Opus audio chunk (binary)
-        MW->>MW: Decode via ffmpeg/pydub → PCM 16kHz mono
-        MW-->>BE: PCM bytes
-        BE-->>AWS: AudioEvent(audio_chunk)
-        AWS-->>BE: TranscriptEvent (partial/final)
-        alt Partial hypothesis
-            BE-->>MW: { type:"transcript", text:"partial..." }
-            MW-->>Client: { type:"transcript", text:"partial..." }
-        else Finalized result
-            BE-->>MW: { type:"transcript", text:"final sentence." }
-            MW-->>Client: { type:"transcript", text:"final sentence." }
-            BE->>S3: PutObject sessions/<id>.txt (append)
-        end
-    end
-
-    Client->>MW: WS close (Stop/leave)
-    MW->>BE: { type:"stop" }
-    BE->>AWS: end_stream()
-    AWS-->>BE: (final events if any)
-    BE->>S3: Final flush (PutObject)
-    BE-->>MW: close
-    MW-->>Client: close
+**Client → Backend:**
+```json
+{
+  "type": "audio",
+  "payload": "<base64-encoded PCM chunk>"
+}
+```
+```json
+{
+  "type": "control",
+  "action": "stop"
+}
 ```
 
-### Timing View (Mermaid)
-
-```mermaid
-sequenceDiagram
-    box Gray Client
-    participant C as MediaRecorder
-    participant WS1 as WS(Client→MW)
-    end
-    box Gray Middleware
-    participant DEC as Decode (ffmpeg)
-    participant WS2 as WS(MW→BE)
-    end
-    box Gray Backend
-    participant STR as Stream→Transcribe
-    participant S3 as S3 Writer
-    end
-    participant TR as Transcribe
-
-    Note over C,TR: 0ms: chunk emitted
-    C->>WS1: send Opus chunk
-    WS1->>DEC: deliver chunk
-    DEC->>WS2: send PCM
-    WS2->>STR: enqueue PCM
-    STR->>TR: AudioEvent
-    TR-->>STR: TranscriptEvent (partial)
-    STR-->>WS2: partial text
-    WS2-->>WS1: partial text
-    WS1-->>C: partial text → UI renders
-
-    Note over TR,S3: On final result boundaries
-    TR-->>STR: TranscriptEvent (final)
-    STR->>S3: PutObject append
+**Backend → Client:**
+```json
+{
+  "type": "transcript",
+  "text": "transcribed text",
+  "is_final": true
+}
+```
+```json
+{
+  "type": "saved",
+  "s3_key": "20241215_143022.txt"
+}
 ```
 
-## How it works (summary)
+## Prerequisites
 
-1. **Client** captures mic audio (WebM/Opus) and streams via WebSocket.
-2. **Middleware** converts Opus → **PCM 16kHz mono** using ffmpeg/pydub; forwards to Backend.
-3. **Backend** streams PCM to **AWS Transcribe Medical** and relays partial/final transcripts back.
-4. **S3** stores a continuously updated text file per session in `sessions/<id>.txt`.
+- Docker and Docker Compose
+- AWS Account with appropriate permissions
+- Terraform (for infrastructure setup)
 
-## Quickstart
+## Quick Start
+
+### 1. Infrastructure Setup
+
+First, deploy the AWS infrastructure using Terraform:
 
 ```bash
-cp .env.example .env
-# Fill AWS credentials and your S3 bucket
-docker compose up --build
+cd terraform
 
-# In another terminal (optional): provision infra
-cd infra
+# Copy and customize variables
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your preferred settings
+
+# Initialize and apply Terraform
 terraform init
-terraform apply -var="bucket_name=<your-bucket>"
+terraform plan
+terraform apply
+
+# Get the outputs (including access keys)
+terraform output
+terraform output -raw aws_access_key_id
+terraform output -raw aws_secret_access_key
+terraform output s3_bucket_name
 ```
 
-Open **http://localhost:8080** → Start Recording → speak → see live transcript → check S3 `sessions/`.
+### 2. Environment Configuration
+
+Create environment file with AWS credentials:
+
+```bash
+# Copy the environment template
+cp env.example .env
+
+# Edit .env with your AWS credentials from Terraform outputs
+# AWS_ACCESS_KEY_ID=<from terraform output>
+# AWS_SECRET_ACCESS_KEY=<from terraform output>
+# S3_BUCKET=<from terraform output>
+# AWS_REGION=us-east-1
+```
+
+### 3. Run the Application
+
+Start both services using Docker Compose v2 (`docker compose`):
+
+```bash
+# Build and start all services
+docker compose up --build
+
+# Or run in background
+docker compose up -d --build
+```
+
+### 4. Access the Application
+
+- **Frontend**: http://localhost:8080
+- **Backend API**: http://localhost:8000
+- **Health Check**: http://localhost:8000/health
+
+## Usage
+
+1. Open the simple HTML client at http://localhost:8080/simple_client.html
+2. Click "🎤 Start Recording" to begin audio capture
+3. Speak into your microphone - you'll see real-time transcripts appear
+4. Click "⏹️ Stop Recording" to end the session
+5. Final transcript will be automatically saved to S3 with a timestamp filename
+
+## Project Structure
+
+```
+.
+├── README.md
+├── docker-compose.yml
+├── env.example
+├── .gitignore
+│
+├── backend/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── main.py                 # FastAPI backend with WebSocket support
+│
+├── client/
+│   ├── Dockerfile
+│   ├── serve_client.py         # Simple HTTP server for the HTML client (port 8080)
+│   └── simple_client.html      # HTML/JS client using WebRTC + WebSocket
+│
+└── terraform/
+    ├── main.tf                 # Main Terraform configuration
+    ├── variables.tf            # Variable definitions
+    ├── outputs.tf              # Output definitions
+    └── terraform.tfvars.example # Example variables file
+```
 
 ## Configuration
 
-- `AWS_REGION`: e.g. `ap-south-1`
-- `S3_BUCKET_NAME`: your bucket name
-- `TRANSCRIBE_MEDICAL_SPECIALTY`: `PRIMARYCARE`, `CARDIOLOGY`, etc.
-- `TRANSCRIBE_MEDICAL_TYPE`: `DICTATION` or `CONVERSATION`
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AWS_ACCESS_KEY_ID` | - | AWS access key (from Terraform) |
+| `AWS_SECRET_ACCESS_KEY` | - | AWS secret key (from Terraform) |
+| `AWS_REGION` | `us-east-1` | AWS region |
+| `S3_BUCKET` | - | S3 bucket name (from Terraform) |
+| `TRANSCRIBE_LANGUAGE_CODE` | `en-US` | Language code for transcription |
+| `LOG_LEVEL` | `INFO` | Logging level |
+
+### Terraform Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `aws_region` | `us-east-1` | AWS region for resources |
+| `bucket_prefix` | `speech-transcription` | Prefix for S3 bucket name |
+| `iam_user_prefix` | `transcription-service` | Prefix for IAM user name |
+| `environment` | `dev` | Environment tag |
+
+## Development
+
+### Local Development
+
+For development without Docker:
+
+```bash
+# Backend
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+
+# Client (in another terminal)
+cd client
+python3 serve_client.py
+```
+
+### Logs
+
+View application logs:
+
+```bash
+# All services
+docker compose logs -f
+
+# Specific service
+docker compose logs -f backend
+docker compose logs -f client
+```
 
 ## Troubleshooting
 
-### Browser / Client
-- **Mic prompt never appears**: Use Chrome/Edge and `http://localhost` (secure context). Ensure no other app is capturing the mic.
-- **No audio flowing**: Check console; verify `MediaRecorder` supports `audio/webm;codecs=opus`. Fallback to `audio/webm` is automatic.
-- **CORS/WebSocket blocked**: All services run on `localhost` with open WS. If front-end is elsewhere, ensure WS URL and CORS are allowed.
+### Common Issues
 
-### Middleware
-- **`ffmpeg` errors**: The Docker image installs ffmpeg. If you changed base image, re-add `apt-get install -y ffmpeg`.
-- **High CPU**: Audio decode/resample is CPU-bound. Increase container CPU shares or raise chunk size from 250ms to 400–500ms.
+1. **WebSocket Connection Failed**
+   - Ensure backend is running and healthy
+   - Check firewall settings
+   - Verify environment variables
 
-### Backend
-- **`StartMedicalStreamTranscription` fails**: Verify region supports **Transcribe Medical**, and your IAM permissions include:
-  - `transcribe:StartMedicalStreamTranscription`
-- **No transcripts arriving**: Ensure your audio format is PCM 16kHz mono and the stream actually receives bytes (middleware logs).
+2. **Audio Not Capturing**
+   - Allow microphone permissions in browser
+   - Check browser compatibility with WebRTC
+   - Ensure HTTPS for production (WebRTC requirement)
 
-### AWS / IAM / S3
-- **AccessDenied (S3)**: Policy must include `s3:PutObject` and `s3:ListBucket` for the target bucket and `/*` objects.
-- **Wrong bucket/region**: Bucket must exist in the same region as your AWS client config.
-- **Credentials**: For local POC, `.env` can hold `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`. For prod, use IAM roles (IRSA/ECS).
+3. **AWS Transcribe Errors**
+   - Verify AWS credentials and permissions
+   - Check AWS region configuration
+   - Ensure Transcribe service is available in your region
 
-### Networking
-- **Can’t connect MW → Backend**: Compose service name `backend` is used as host. Keep `BACKEND_WS_URL=ws://backend:8082/ingest`.
-- **Large frames**: If you see `max_size` errors, raise `max_size` in `websockets.connect` and ensure chunk sizes are reasonable.
+4. **S3 Upload Failures**
+   - Verify S3 bucket exists and is accessible
+   - Check IAM permissions for `s3:PutObject`
+   - Confirm bucket name in environment variables
 
-### Latency tuning
-- Lower `mediaRecorder.start(250)` to `150` or `100` ms for snappier partials.
-- Ensure containers are not CPU-throttled; pin to performance profile if on laptop.
+### Health Checks
 
-## Extensibility
+Check service health:
 
-- **Custom vocabulary**: Add `vocabulary_name` to the `StartMedicalStreamTranscriptionRequest`.
-- **Speaker labeling**: For `CONVERSATION`, enable channel identification; for multi-person capture, you’ll need separate channels.
-- **Storage**: Stream audio to S3 (e.g., HLS or raw PCM) alongside text if you need audio archives.
-- **Observability**: Add structured logging and ship to CloudWatch/ELK.
+```bash
+# Backend health
+curl http://localhost:8000/health
 
----
+# Check service status
+docker compose ps
+```
 
-© Your Team — POC build scaffolding
+## Production Considerations
+
+### Security
+- Use HTTPS in production (required for WebRTC)
+- Implement proper authentication and authorization
+- Use AWS IAM roles instead of access keys when possible
+- Enable S3 bucket encryption and versioning (included in Terraform)
+
+### Scalability
+- Consider using AWS ECS/EKS for container orchestration
+- Implement connection pooling for WebSocket connections
+- Use AWS Application Load Balancer for high availability
+- Monitor AWS service limits (Transcribe concurrent streams)
+
+### Monitoring
+- Implement application metrics and monitoring
+- Set up AWS CloudWatch alarms
+- Add structured logging for better observability
+- Monitor S3 storage costs and implement lifecycle policies
+
+## Cost Optimization
+
+- AWS Transcribe Streaming: ~$0.024 per minute
+- S3 storage: Standard pricing applies
+- Consider using S3 Intelligent Tiering for automatic cost optimization
+
+## Cleanup
+
+To destroy all AWS resources:
+
+```bash
+cd terraform
+terraform destroy
+```
+
+To stop and remove Docker containers:
+
+```bash
+docker compose down
+docker compose down --volumes  # Also remove volumes
+```
+
+## License
+
+This project is provided as-is for demonstration purposes.
+
+## Contributing
+
+This is a POC project. For production use, consider:
+- Adding comprehensive error handling
+- Implementing proper authentication
+- Adding unit and integration tests
+- Setting up CI/CD pipelines
+- Adding monitoring and alerting

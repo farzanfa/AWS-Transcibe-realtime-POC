@@ -1,28 +1,44 @@
-version: "3.9"
+version: '3.8'
+
 services:
-  client:
-    build: ./client
-    container_name: mtm-client
-    ports: ["8080:80"]
-    environment:
-      - VITE_MIDDLEWARE_WS=ws://localhost:8081/ws
-    depends_on: [middleware]
-
-  middleware:
-    build: ./middleware
-    container_name: mtm-middleware
-    ports: ["8081:8081"]
-    environment:
-      - BACKEND_WS_URL=ws://backend:8082/ingest
-    depends_on: [backend]
-
   backend:
-    build: ./backend
-    container_name: mtm-backend
-    ports: ["8082:8082"]
-    env_file: .env
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: transcription-backend
+    ports:
+      - "8000:8000"
     environment:
-      - AWS_REGION=${AWS_REGION}
-      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
-      - TRANSCRIBE_MEDICAL_SPECIALTY=${TRANSCRIBE_MEDICAL_SPECIALTY}
-      - TRANSCRIBE_MEDICAL_TYPE=${TRANSCRIBE_MEDICAL_TYPE}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - S3_BUCKET=${S3_BUCKET}
+      - TRANSCRIBE_LANGUAGE_CODE=${TRANSCRIBE_LANGUAGE_CODE:-en-US}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - transcription-network
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: transcription-client
+    ports:
+      - "8080:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - transcription-network
+
+networks:
+  transcription-network:
+    driver: bridge
