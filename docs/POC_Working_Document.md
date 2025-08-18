@@ -1,7 +1,7 @@
-# Real-time Speech Transcription POC – Working Document
+# Real-time Medical Speech Transcription POC – Working Document
 
 ## Overview
-- Browser microphone → Client (HTML/JS) → Backend WebSocket (`/ws`) → AWS Transcribe Streaming → live transcript → S3 on stop.
+- Browser microphone → Client (HTML/JS) → Backend WebSocket (`/ws`) → AWS Transcribe Medical Streaming → live medical transcript → S3 on stop.
 - On Stop: concatenates only final transcripts; uploads `YYYYMMDD_HHMMSS.txt` to S3 bucket.
 
 ## Services and Ports
@@ -19,14 +19,15 @@
 ## Environment Variables
 - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET`
 - Optional: `TRANSCRIBE_LANGUAGE_CODE` (default `en-US`), `LOG_LEVEL` (default `INFO`).
+- Medical: `USE_MEDICAL_TRANSCRIBE` (default `true`), `MEDICAL_SPECIALTY` (default `PRIMARYCARE`).
 
 ## Docker Compose
 - `backend` (port 8000) and `client` (port 8080) services; shared bridge network; backend has healthcheck; client waits for backend healthy.
 
-## Backend (FastAPI + AWS Transcribe)
+## Backend (FastAPI + AWS Transcribe Medical)
 - File: `backend/main.py`
 - Key parts:
-  - Transcribe Streaming: `start_stream_transcription(language_code=..., media_sample_rate_hz=16000, media_encoding="pcm")`
+  - Transcribe Medical Streaming: `start_medical_stream_transcription(language_code=..., media_sample_rate_hz=16000, media_encoding="pcm", specialty=...)`
   - WebSocket `/ws`: accepts JSON messages; decodes base64 audio; feeds to AWS stream; on stop, ends stream, concatenates finals, uploads to S3.
   - S3 save via `boto3.put_object` offloaded with `run_in_executor`.
   - Sends back live/final transcripts and final `saved` notification.
@@ -44,7 +45,7 @@
 - File: `terraform/main.tf`
 - Provisions:
   - S3 bucket (versioned, encrypted, public-blocked).
-  - IAM user with inline policy: `transcribe:StartStreamTranscription`, `s3:PutObject`, `s3:AbortMultipartUpload` for that bucket.
+  - IAM user with inline policy: `transcribe:StartStreamTranscription`, `transcribe:StartMedicalStreamTranscription`, `s3:PutObject`, `s3:AbortMultipartUpload` for that bucket.
   - Access keys outputs (sensitive).
 
 ## Runbook
