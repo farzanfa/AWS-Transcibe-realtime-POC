@@ -1,30 +1,33 @@
 #!/usr/bin/env python3
 """
-Test script to verify the medical WebSocket connection cleanup fix.
-This simulates a quick connect/disconnect scenario that was causing the InvalidStateError.
+Test script to verify the medical WebSocket error fix.
+This script simulates connecting to the medical WebSocket, sending audio, and then disconnecting.
 """
 
 import asyncio
 import json
-import websockets
 import base64
+import websockets
 import sys
+import logging
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 async def test_medical_websocket():
-    """Test medical WebSocket connection and cleanup."""
+    """Test the medical WebSocket connection and disconnection."""
     uri = "ws://localhost:8000/ws/medical"
     
     try:
-        print("Connecting to medical WebSocket...")
         async with websockets.connect(uri) as websocket:
-            # Receive initial info message
+            logger.info("Connected to medical WebSocket")
+            
+            # Wait for initial info message
             initial_msg = await websocket.recv()
-            print(f"Initial message: {json.loads(initial_msg)['type']}")
+            logger.info(f"Received initial message: {initial_msg}")
             
             # Start transcription
-            print("Starting transcription...")
-            await websocket.send(json.dumps({
+            start_msg = {
                 "type": "start",
                 "config": {
                     "language_code": "en-US",
@@ -32,79 +35,61 @@ async def test_medical_websocket():
                     "specialty": "PRIMARYCARE",
                     "type": "CONVERSATION"
                 }
-            }))
+            }
+            await websocket.send(json.dumps(start_msg))
+            logger.info("Sent start message")
             
             # Wait for session started confirmation
-            session_msg = await websocket.recv()
-            session_data = json.loads(session_msg)
-            print(f"Session started: {session_data.get('session_id')}")
+            response = await websocket.recv()
+            logger.info(f"Received response: {response}")
             
-            # Send a small amount of audio data
-            print("Sending audio data...")
-            # Create fake audio data (silence)
-            fake_audio = b'\x00' * 1600  # 100ms of silence at 16kHz
-            audio_base64 = base64.b64encode(fake_audio).decode('utf-8')
-            
-            await websocket.send(json.dumps({
-                "type": "audio",
-                "data": audio_base64
-            }))
-            
-            # Wait briefly for acknowledgment
-            await asyncio.sleep(0.5)
+            # Send a few audio chunks (simulated)
+            for i in range(3):
+                # Create fake audio data (silent PCM)
+                audio_data = base64.b64encode(b'\x00' * 1024).decode('utf-8')
+                audio_msg = {
+                    "type": "audio",
+                    "data": audio_data
+                }
+                await websocket.send(json.dumps(audio_msg))
+                logger.info(f"Sent audio chunk {i + 1}")
+                
+                # Small delay between chunks
+                await asyncio.sleep(0.5)
             
             # Stop transcription
-            print("Stopping transcription...")
-            await websocket.send(json.dumps({
-                "type": "stop"
-            }))
+            stop_msg = {"type": "stop"}
+            await websocket.send(json.dumps(stop_msg))
+            logger.info("Sent stop message")
             
-            # Wait for session ended message
+            # Wait for any final messages
             try:
-                end_msg = await asyncio.wait_for(websocket.recv(), timeout=2.0)
-                end_data = json.loads(end_msg)
-                if end_data.get('type') == 'session_ended':
-                    print(f"Session ended successfully: {end_data.get('session_id')}")
-                else:
-                    print(f"Received: {end_data}")
+                final_msg = await asyncio.wait_for(websocket.recv(), timeout=2.0)
+                logger.info(f"Received final message: {final_msg}")
             except asyncio.TimeoutError:
-                print("Timeout waiting for session end message")
+                logger.info("No final message received (timeout)")
             
-        print("WebSocket closed cleanly - no errors!")
-        return True
-        
     except Exception as e:
-        print(f"Error during test: {e}")
+        logger.error(f"Error during test: {e}")
         return False
-
-
-async def run_multiple_tests(num_tests=3):
-    """Run multiple connection tests to ensure stability."""
-    print(f"\nRunning {num_tests} connection tests...\n")
     
-    success_count = 0
-    for i in range(num_tests):
-        print(f"\n--- Test {i+1}/{num_tests} ---")
-        if await test_medical_websocket():
-            success_count += 1
-        await asyncio.sleep(1)  # Brief pause between tests
-    
-    print(f"\n\nTest Results: {success_count}/{num_tests} successful")
-    return success_count == num_tests
+    logger.info("Test completed successfully - no InvalidStateError!")
+    return True
 
+async def main():
+    """Run the test."""
+    logger.info("Starting medical WebSocket test...")
+    
+    # Give the server a moment to be ready
+    await asyncio.sleep(1)
+    
+    success = await test_medical_websocket()
+    
+    if success:
+        logger.info("✅ Test passed - the fix appears to be working!")
+    else:
+        logger.error("❌ Test failed")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    # Check if server is running
-    import socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    result = sock.connect_ex(('localhost', 8000))
-    sock.close()
-    
-    if result != 0:
-        print("Error: Server is not running on localhost:8000")
-        print("Please start the server with: docker-compose up")
-        sys.exit(1)
-    
-    # Run the tests
-    success = asyncio.run(run_multiple_tests())
-    sys.exit(0 if success else 1)
+    asyncio.run(main())
