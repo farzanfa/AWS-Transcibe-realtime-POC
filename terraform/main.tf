@@ -84,7 +84,8 @@ resource "aws_iam_user_policy" "transcription_policy" {
       {
         Effect = "Allow"
         Action = [
-          "transcribe:StartStreamTranscription"
+          "transcribe:StartStreamTranscription",
+          "transcribe:StartMedicalStreamTranscription"
         ]
         Resource = "*"
       },

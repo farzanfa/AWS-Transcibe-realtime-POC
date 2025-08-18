@@ -14,6 +14,8 @@ services:
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - S3_BUCKET=${S3_BUCKET}
       - TRANSCRIBE_LANGUAGE_CODE=${TRANSCRIBE_LANGUAGE_CODE:-en-US}
+      - USE_MEDICAL_TRANSCRIBE=${USE_MEDICAL_TRANSCRIBE:-true}
+      - MEDICAL_SPECIALTY=${MEDICAL_SPECIALTY:-PRIMARYCARE}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     restart: unless-stopped
     healthcheck:

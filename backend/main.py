@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
 S3_BUCKET = os.getenv('S3_BUCKET')
 TRANSCRIBE_LANGUAGE_CODE = os.getenv('TRANSCRIBE_LANGUAGE_CODE', 'en-US')
+USE_MEDICAL_TRANSCRIBE = os.getenv('USE_MEDICAL_TRANSCRIBE', 'true').lower() == 'true'
+MEDICAL_SPECIALTY = os.getenv('MEDICAL_SPECIALTY', 'PRIMARYCARE')  # PRIMARYCARE, CARDIOLOGY, NEUROLOGY, ONCOLOGY, RADIOLOGY, UROLOGY
 
 if not S3_BUCKET:
     raise ValueError("S3_BUCKET environment variable is required")
@@ -92,11 +94,22 @@ class TranscriptionSession:
     async def start_transcription(self):
         """Start AWS Transcribe streaming session."""
         try:
-            self.stream = await transcribe_client.start_stream_transcription(
-                language_code=TRANSCRIBE_LANGUAGE_CODE,
-                media_sample_rate_hz=16000,
-                media_encoding="pcm",
-            )
+            if USE_MEDICAL_TRANSCRIBE:
+                # Use Amazon Transcribe Medical
+                self.stream = await transcribe_client.start_medical_stream_transcription(
+                    language_code=TRANSCRIBE_LANGUAGE_CODE,
+                    media_sample_rate_hz=16000,
+                    media_encoding="pcm",
+                    specialty=MEDICAL_SPECIALTY,
+                )
+                logger.info(f"Started medical transcription stream with specialty: {MEDICAL_SPECIALTY}")
+            else:
+                # Use regular Amazon Transcribe
+                self.stream = await transcribe_client.start_stream_transcription(
+                    language_code=TRANSCRIBE_LANGUAGE_CODE,
+                    media_sample_rate_hz=16000,
+                    media_encoding="pcm",
+                )
             
             # Create handler with the stream
             self.handler = TranscriptionHandler(self.websocket, self.stream.output_stream)

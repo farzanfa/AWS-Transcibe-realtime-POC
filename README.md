@@ -1,17 +1,19 @@
-# Real-time Speech Transcription POC
+# Real-time Medical Speech Transcription POC
 
- A production-lean proof of concept for real-time speech transcription using AWS Transcribe Streaming, built with a FastAPI backend and an HTML/JavaScript frontend, both containerized with Docker.
+ A production-lean proof of concept for real-time medical speech transcription using AWS Transcribe Medical Streaming, built with a FastAPI backend and an HTML/JavaScript frontend, both containerized with Docker.
 
 ## Architecture
 
 ```
-Browser Microphone → HTML/JS Client (WebRTC) → FastAPI Backend (WebSocket) → AWS Transcribe Streaming → Real-time Transcripts → S3 Storage
+Browser Microphone → HTML/JS Client (WebRTC) → FastAPI Backend (WebSocket) → AWS Transcribe Medical Streaming → Real-time Medical Transcripts → S3 Storage
 ```
 
 ## Features
 
 - 🎤 **Real-time Audio Capture**: WebRTC-based microphone input through the browser
-- 🔄 **Live Transcription**: Real-time speech-to-text using AWS Transcribe Streaming API
+- 🏥 **Medical Transcription**: Real-time medical speech-to-text using AWS Transcribe Medical Streaming API
+- 🔄 **Live Transcription**: Real-time transcription with medical terminology recognition
+- 💊 **Medical Specialties**: Support for PRIMARYCARE, CARDIOLOGY, NEUROLOGY, ONCOLOGY, RADIOLOGY, and UROLOGY
 - 💾 **Automatic Saving**: Final transcripts saved to S3 with timestamp filenames
 - 🐳 **Dockerized**: Complete containerization for easy deployment
 - 🏗️ **Infrastructure as Code**: Terraform configuration for AWS resources
@@ -99,6 +101,8 @@ cp env.example .env
 # AWS_SECRET_ACCESS_KEY=<from terraform output>
 # S3_BUCKET=<from terraform output>
 # AWS_REGION=us-east-1
+# USE_MEDICAL_TRANSCRIBE=true
+# MEDICAL_SPECIALTY=PRIMARYCARE
 ```
 
 ### 3. Run the Application
@@ -164,6 +168,8 @@ docker compose up -d --build
 | `AWS_REGION` | `us-east-1` | AWS region |
 | `S3_BUCKET` | - | S3 bucket name (from Terraform) |
 | `TRANSCRIBE_LANGUAGE_CODE` | `en-US` | Language code for transcription |
+| `USE_MEDICAL_TRANSCRIBE` | `true` | Enable AWS Transcribe Medical |
+| `MEDICAL_SPECIALTY` | `PRIMARYCARE` | Medical specialty (PRIMARYCARE, CARDIOLOGY, NEUROLOGY, ONCOLOGY, RADIOLOGY, UROLOGY) |
 | `LOG_LEVEL` | `INFO` | Logging level |
 
 ### Terraform Variables
@@ -222,7 +228,9 @@ docker compose logs -f client
 3. **AWS Transcribe Errors**
    - Verify AWS credentials and permissions
    - Check AWS region configuration
-   - Ensure Transcribe service is available in your region
+   - Ensure Transcribe Medical service is available in your region (limited availability)
+   - Verify IAM permissions include `transcribe:StartMedicalStreamTranscription`
+   - Check that MEDICAL_SPECIALTY is set to a valid value
 
 4. **S3 Upload Failures**
    - Verify S3 bucket exists and is accessible
@@ -263,9 +271,22 @@ docker compose ps
 
 ## Cost Optimization
 
-- AWS Transcribe Streaming: ~$0.024 per minute
+- AWS Transcribe Medical Streaming: ~$0.058 per minute
+- AWS Transcribe Streaming (regular): ~$0.024 per minute
 - S3 storage: Standard pricing applies
 - Consider using S3 Intelligent Tiering for automatic cost optimization
+
+## AWS Transcribe Medical Notes
+
+- **Availability**: AWS Transcribe Medical is available in limited regions. Ensure your chosen region supports it.
+- **Medical Specialties**: Choose the appropriate specialty for better accuracy:
+  - PRIMARYCARE: General medical conversations
+  - CARDIOLOGY: Heart-related medical conversations
+  - NEUROLOGY: Nervous system medical conversations
+  - ONCOLOGY: Cancer-related medical conversations
+  - RADIOLOGY: Medical imaging conversations
+  - UROLOGY: Urinary system medical conversations
+- **HIPAA Compliance**: AWS Transcribe Medical is HIPAA eligible when used with a Business Associate Agreement (BAA)
 
 ## Cleanup
 
