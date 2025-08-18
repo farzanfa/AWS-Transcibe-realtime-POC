@@ -36,7 +36,7 @@ class MedicalTranscriptionSession:
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
         self.session_id = str(uuid.uuid4())
-        self.transcribe_client = boto3.client('transcribestreaming', region_name=AWS_REGION)
+        self.transcribe_client = boto3.client('transcribe', region_name=AWS_REGION)
         self.stream = None
         self.input_stream = None
         self.output_stream = None

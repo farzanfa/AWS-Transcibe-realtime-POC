@@ -13,7 +13,7 @@ This backend service has been updated to support AWS Transcribe Medical for real
    - You can still use medical vocabulary and terminology, but without the specialized medical models
 
 2. **Implementation Details**:
-   - Uses the `transcribestreaming` boto3 client with `start_stream_transcription` method
+   - Uses the `transcribe` boto3 client with `start_stream_transcription` method
    - Regular transcription works via WebSocket streaming for real-time transcription
    - Medical transcription configuration is preserved but uses regular streaming
    - Processes streaming responses asynchronously
@@ -147,7 +147,7 @@ AWS Transcribe Medical supports the following specialties:
 ### Common Issues and Solutions
 
 1. **AttributeError: 'TranscribeService' object has no attribute 'start_medical_stream_transcription'**
-   - **Solution**: This has been fixed by using the correct method names with the `transcribestreaming` client.
+   - **Solution**: This has been fixed by using the correct method names with the `transcribe` client.
 
 2. **WebSocket connection fails**
    - Check that your AWS credentials are correctly configured
