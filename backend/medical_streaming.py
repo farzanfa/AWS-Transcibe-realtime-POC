@@ -133,6 +133,8 @@ class MedicalTranscriptionSession:
         self.audio_queue = asyncio.Queue()
         self._write_task = None
         self._handler_task = None
+        self._heartbeat_task = None
+        self._last_audio_time = None
         
     async def start_transcription(self, config: Optional[Dict[str, Any]] = None):
         """
@@ -212,6 +214,9 @@ class MedicalTranscriptionSession:
             
             # Start the audio writer task
             self._write_task = asyncio.create_task(self._write_audio_chunks())
+            
+            # Start the heartbeat task to prevent AWS timeout
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_sender())
             
             # Start the handler task with error wrapper
             async def handle_events_wrapper():
@@ -313,6 +318,35 @@ class MedicalTranscriptionSession:
                     if not any(x in error_str for x in ["closed", "cancelled", "invalid state"]):
                         logger.error(f"Error ending stream: {e}")
     
+    async def _heartbeat_sender(self):
+        """Send silence periodically to prevent AWS Transcribe timeout."""
+        try:
+            while self.running:
+                try:
+                    # Wait for 10 seconds
+                    await asyncio.sleep(10)
+                    
+                    if not self.running:
+                        break
+                    
+                    # Check if we haven't sent audio recently
+                    current_time = asyncio.get_event_loop().time()
+                    if self._last_audio_time is None or (current_time - self._last_audio_time) > 10:
+                        # Send a small amount of silence (100ms of silence at 16kHz)
+                        # 16000 Hz * 0.1 seconds * 2 bytes per sample = 3200 bytes
+                        silence = b'\x00' * 3200
+                        await self.audio_queue.put(silence)
+                        logger.debug("Sent heartbeat silence to prevent timeout")
+                        
+                except asyncio.CancelledError:
+                    logger.debug("Heartbeat task cancelled")
+                    break
+                except Exception as e:
+                    logger.error(f"Error in heartbeat sender: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Heartbeat task error: {e}")
+    
     async def send_audio_chunk(self, audio_data: str):
         """
         Send audio chunk to AWS Transcribe Medical.
@@ -330,6 +364,9 @@ class MedicalTranscriptionSession:
             
             # Add to queue for processing
             await self.audio_queue.put(audio_bytes)
+            
+            # Update last audio time
+            self._last_audio_time = asyncio.get_event_loop().time()
             
             # Send acknowledgment
             await self.websocket.send_text(json.dumps({
@@ -381,6 +418,8 @@ class MedicalTranscriptionSession:
                 tasks_to_cancel.append(self._write_task)
             if self._handler_task and not self._handler_task.done():
                 tasks_to_cancel.append(self._handler_task)
+            if self._heartbeat_task and not self._heartbeat_task.done():
+                tasks_to_cancel.append(self._heartbeat_task)
             
             # Cancel all tasks
             for task in tasks_to_cancel:
