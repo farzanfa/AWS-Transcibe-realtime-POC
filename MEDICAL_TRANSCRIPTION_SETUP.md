@@ -5,16 +5,19 @@ This backend service has been updated to support AWS Transcribe Medical for real
 
 ## Key Changes Made
 
-1. **Fixed the TranscribeService Error**: The original error `'TranscribeService' object has no attribute 'start_medical_stream_transcription'` has been resolved by using the correct boto3 method names:
-   - For medical transcription: `start_medical_stream_transcription_websocket`
-   - For regular transcription: `start_stream_transcription_websocket`
+1. **Fixed the TranscribeService Error**: The original error `'TranscribeService' object has no attribute 'start_medical_stream_transcription_websocket'` has been resolved. 
+   
+   **Important Note**: AWS Transcribe Medical does NOT support real-time streaming via WebSocket. The medical transcription streaming is only available through the batch API. When `USE_MEDICAL_TRANSCRIBE` is set to `true`, the system will:
+   - Log a warning about the limitation
+   - Fall back to regular AWS Transcribe streaming
+   - You can still use medical vocabulary and terminology, but without the specialized medical models
 
 2. **Implementation Details**:
-   - Uses the `transcribestreaming` boto3 client
-   - Implements proper WebSocket streaming for real-time transcription
-   - Handles both medical and regular transcription modes
+   - Uses the `transcribestreaming` boto3 client with `start_stream_transcription` method
+   - Regular transcription works via WebSocket streaming for real-time transcription
+   - Medical transcription configuration is preserved but uses regular streaming
    - Processes streaming responses asynchronously
-   - Saves final transcripts to S3
+   - Saves final transcripts to S3 with proper medical/regular tagging
 
 ## Environment Variables
 
@@ -166,6 +169,30 @@ AWS Transcribe Medical supports the following specialties:
 - Backend logs: `docker-compose logs backend -f`
 - AWS CloudWatch: Check for AWS Transcribe API errors
 - S3 bucket: Verify transcripts are being saved
+
+## Alternatives for Medical Transcription
+
+Since real-time medical transcription is not available via WebSocket, consider these alternatives:
+
+1. **Batch Medical Transcription**:
+   - Use AWS Transcribe Medical batch API for processing audio files
+   - Upload audio to S3 and process asynchronously
+   - Better accuracy with medical-specific models
+
+2. **Custom Medical Vocabulary**:
+   - Create custom vocabularies with medical terms for regular Transcribe
+   - Use vocabulary filters to improve medical term recognition
+   - See AWS documentation for custom vocabulary setup
+
+3. **Post-Processing**:
+   - Use regular transcription for real-time
+   - Apply medical NLP processing on the transcripts
+   - Consider AWS Comprehend Medical for entity extraction
+
+4. **Hybrid Approach**:
+   - Use regular transcription for real-time display
+   - Process the saved audio with Transcribe Medical batch API for final records
+   - Provide both real-time and high-accuracy transcripts
 
 ## Performance Considerations
 
