@@ -12,6 +12,7 @@ import os
 import uuid
 from datetime import datetime
 from typing import Dict, Any, Optional
+import warnings
 
 from amazon_transcribe.client import TranscribeStreamingClient
 from amazon_transcribe.handlers import TranscriptResultStreamHandler
@@ -19,8 +20,27 @@ from amazon_transcribe.model import TranscriptEvent, TranscriptResultStream
 from botocore.exceptions import ClientError
 from fastapi import WebSocket, WebSocketDisconnect
 
+# Suppress the specific InvalidStateError that occurs during shutdown
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*InvalidStateError.*")
+
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Monkey patch to handle AWS SDK's InvalidStateError during shutdown
+import concurrent.futures
+_original_set_result = concurrent.futures.Future.set_result
+
+def _patched_set_result(self, result):
+    """Patched set_result that ignores InvalidStateError during shutdown."""
+    try:
+        _original_set_result(self, result)
+    except concurrent.futures.InvalidStateError:
+        # This happens when the future is cancelled during shutdown
+        # We can safely ignore it
+        logger.debug("Ignoring InvalidStateError on cancelled future during shutdown")
+
+# Apply the patch
+concurrent.futures.Future.set_result = _patched_set_result
 
 # Environment configuration
 AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
@@ -193,8 +213,20 @@ class MedicalTranscriptionSession:
             # Start the audio writer task
             self._write_task = asyncio.create_task(self._write_audio_chunks())
             
-            # Start the handler task
-            self._handler_task = asyncio.create_task(self.handler.handle_events())
+            # Start the handler task with error wrapper
+            async def handle_events_wrapper():
+                try:
+                    await self.handler.handle_events()
+                except asyncio.CancelledError:
+                    logger.debug("Handler task cancelled")
+                except Exception as e:
+                    error_str = str(e).lower()
+                    if any(x in error_str for x in ["closed", "cancelled", "invalid state"]):
+                        logger.debug(f"Expected error during handler shutdown: {e}")
+                    else:
+                        logger.error(f"Unexpected error in handler: {e}")
+            
+            self._handler_task = asyncio.create_task(handle_events_wrapper())
             
             # Send success message to client
             await self.websocket.send_text(json.dumps({
@@ -240,8 +272,18 @@ class MedicalTranscriptionSession:
                     if audio_chunk is None:  # Sentinel value to stop
                         break
                     
-                    # Send audio to transcribe
-                    await self.stream.input_stream.send_audio_event(audio_chunk=audio_chunk)
+                    # Check if stream is still valid before sending
+                    if not self.running or not self.stream:
+                        break
+                    
+                    # Send audio to transcribe with error handling
+                    try:
+                        await self.stream.input_stream.send_audio_event(audio_chunk=audio_chunk)
+                    except Exception as e:
+                        if "closed" in str(e).lower() or "cancelled" in str(e).lower():
+                            logger.debug("Stream appears to be closed, stopping audio writer")
+                            break
+                        raise
                     
                 except asyncio.TimeoutError:
                     continue
@@ -249,23 +291,26 @@ class MedicalTranscriptionSession:
                     logger.debug("Audio writer task cancelled")
                     break
                 except Exception as e:
-                    logger.error(f"Error writing audio chunk: {e}")
-                    if "closed" in str(e).lower() or "cancelled" in str(e).lower():
+                    error_str = str(e).lower()
+                    if any(x in error_str for x in ["closed", "cancelled", "invalid state"]):
+                        logger.debug(f"Expected error during shutdown: {e}")
                         break
+                    logger.error(f"Error writing audio chunk: {e}")
                     
         except asyncio.CancelledError:
             logger.debug("Audio writer task cancelled during main loop")
         except Exception as e:
             logger.error(f"Error in audio writer: {e}")
         finally:
-            # End the stream if not already ended
-            if not stream_ended and self.stream:
+            # End the stream if not already ended and still running
+            if not stream_ended and self.stream and self.running:
                 try:
                     await self.stream.input_stream.end_stream()
                     stream_ended = True
                     logger.debug("Stream ended successfully")
                 except Exception as e:
-                    if "closed" not in str(e).lower() and "cancelled" not in str(e).lower():
+                    error_str = str(e).lower()
+                    if not any(x in error_str for x in ["closed", "cancelled", "invalid state"]):
                         logger.error(f"Error ending stream: {e}")
     
     async def send_audio_chunk(self, audio_data: str):
@@ -317,30 +362,42 @@ class MedicalTranscriptionSession:
         try:
             # Send sentinel to stop audio writer
             if self.audio_queue:
-                await self.audio_queue.put(None)
+                try:
+                    await self.audio_queue.put(None)
+                except Exception:
+                    pass  # Queue might be closed
             
-            # Wait for write task to complete first (this will end the stream)
+            # First, try to gracefully close the stream
+            if self.stream and hasattr(self.stream, 'input_stream'):
+                try:
+                    # Don't wait for the stream to end, just mark it as ending
+                    asyncio.create_task(self.stream.input_stream.end_stream())
+                except Exception as e:
+                    logger.debug(f"Error ending stream (this is often expected): {e}")
+            
+            # Cancel tasks in parallel
+            tasks_to_cancel = []
             if self._write_task and not self._write_task.done():
-                try:
-                    await asyncio.wait_for(self._write_task, timeout=5.0)
-                except asyncio.TimeoutError:
-                    logger.warning("Timeout waiting for write task to complete")
-                    self._write_task.cancel()
-                    try:
-                        await self._write_task
-                    except asyncio.CancelledError:
-                        pass
-            
-            # Give the handler a moment to process any remaining events
-            await asyncio.sleep(0.5)
-            
-            # Now cancel the handler task
+                tasks_to_cancel.append(self._write_task)
             if self._handler_task and not self._handler_task.done():
-                self._handler_task.cancel()
-                try:
-                    await self._handler_task
-                except asyncio.CancelledError:
-                    pass
+                tasks_to_cancel.append(self._handler_task)
+            
+            # Cancel all tasks
+            for task in tasks_to_cancel:
+                task.cancel()
+            
+            # Wait for tasks to be cancelled with a short timeout
+            if tasks_to_cancel:
+                done, pending = await asyncio.wait(
+                    tasks_to_cancel,
+                    timeout=2.0,
+                    return_when=asyncio.ALL_COMPLETED
+                )
+                
+                # Force cancel any pending tasks
+                for task in pending:
+                    logger.warning(f"Force cancelling task: {task}")
+                    task.cancel()
             
             # Get transcript data from handler
             transcripts = self.handler.transcripts if self.handler else []
