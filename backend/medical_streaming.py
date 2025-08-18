@@ -227,6 +227,7 @@ class MedicalTranscriptionSession:
     
     async def _write_audio_chunks(self):
         """Write audio chunks to the transcription stream."""
+        stream_ended = False
         try:
             while self.running:
                 try:
@@ -244,17 +245,28 @@ class MedicalTranscriptionSession:
                     
                 except asyncio.TimeoutError:
                     continue
+                except asyncio.CancelledError:
+                    logger.debug("Audio writer task cancelled")
+                    break
                 except Exception as e:
                     logger.error(f"Error writing audio chunk: {e}")
+                    if "closed" in str(e).lower() or "cancelled" in str(e).lower():
+                        break
                     
+        except asyncio.CancelledError:
+            logger.debug("Audio writer task cancelled during main loop")
         except Exception as e:
             logger.error(f"Error in audio writer: {e}")
         finally:
-            # End the stream
-            try:
-                await self.stream.input_stream.end_stream()
-            except Exception as e:
-                logger.error(f"Error ending stream: {e}")
+            # End the stream if not already ended
+            if not stream_ended and self.stream:
+                try:
+                    await self.stream.input_stream.end_stream()
+                    stream_ended = True
+                    logger.debug("Stream ended successfully")
+                except Exception as e:
+                    if "closed" not in str(e).lower() and "cancelled" not in str(e).lower():
+                        logger.error(f"Error ending stream: {e}")
     
     async def send_audio_chunk(self, audio_data: str):
         """
@@ -307,10 +319,22 @@ class MedicalTranscriptionSession:
             if self.audio_queue:
                 await self.audio_queue.put(None)
             
-            # Wait for tasks to complete
+            # Wait for write task to complete first (this will end the stream)
             if self._write_task and not self._write_task.done():
-                await asyncio.wait_for(self._write_task, timeout=5.0)
+                try:
+                    await asyncio.wait_for(self._write_task, timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout waiting for write task to complete")
+                    self._write_task.cancel()
+                    try:
+                        await self._write_task
+                    except asyncio.CancelledError:
+                        pass
             
+            # Give the handler a moment to process any remaining events
+            await asyncio.sleep(0.5)
+            
+            # Now cancel the handler task
             if self._handler_task and not self._handler_task.done():
                 self._handler_task.cancel()
                 try:
@@ -322,19 +346,20 @@ class MedicalTranscriptionSession:
             transcripts = self.handler.transcripts if self.handler else []
             
             # Send session ended message with summary
-            await self.websocket.send_text(json.dumps({
-                'type': 'session_ended',
-                'session_id': self.session_id,
-                'summary': {
-                    'total_transcripts': len(transcripts),
-                    'duration': f"{len(transcripts) * 2} seconds (estimated)",  # Rough estimate
-                    'medical_entities_found': sum(len(t.get('entities', [])) for t in transcripts)
-                },
-                'timestamp': datetime.utcnow().isoformat()
-            }))
+            try:
+                await self.websocket.send_text(json.dumps({
+                    'type': 'session_ended',
+                    'session_id': self.session_id,
+                    'summary': {
+                        'total_transcripts': len(transcripts),
+                        'duration': f"{len(transcripts) * 2} seconds (estimated)",  # Rough estimate
+                        'medical_entities_found': sum(len(t.get('entities', [])) for t in transcripts)
+                    },
+                    'timestamp': datetime.utcnow().isoformat()
+                }))
+            except Exception as e:
+                logger.debug(f"Could not send session ended message: {e}")
             
-        except asyncio.TimeoutError:
-            logger.warning("Timeout waiting for tasks to complete")
         except Exception as e:
             logger.error(f"Error stopping transcription: {e}")
 
