@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medical Transcription - Real-time Streaming</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover:not(:disabled) {
+            background-color: #c82333;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status.recording {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .transcript-container {
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .transcript-box {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            min-height: 300px;
+            max-height: 500px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+        }
+        .transcript-box h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .transcript-item {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: white;
+            border-radius: 4px;
+            border-left: 3px solid #007bff;
+        }
+        .transcript-item.partial {
+            border-left-color: #ffc107;
+            opacity: 0.8;
+        }
+        .speaker-label {
+            font-weight: bold;
+            color: #007bff;
+            margin-right: 5px;
+        }
+        .timestamp {
+            font-size: 12px;
+            color: #666;
+        }
+        .medical-entity {
+            display: inline-block;
+            margin: 2px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .entity-medication {
+            background-color: #e3f2fd;
+            color: #1976d2;
+        }
+        .entity-medical_condition {
+            background-color: #fce4ec;
+            color: #c2185b;
+        }
+        .entity-protected_health_information {
+            background-color: #f3e5f5;
+            color: #7b1fa2;
+        }
+        .entity-test_treatment_procedure {
+            background-color: #e8f5e9;
+            color: #388e3c;
+        }
+        .entity-anatomy {
+            background-color: #fff3e0;
+            color: #f57c00;
+        }
+        .config-section {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        .config-row {
+            margin: 10px 0;
+        }
+        label {
+            display: inline-block;
+            width: 150px;
+            font-weight: bold;
+        }
+        select {
+            padding: 5px 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .audio-level {
+            height: 20px;
+            background-color: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .audio-level-bar {
+            height: 100%;
+            background-color: #4caf50;
+            width: 0%;
+            transition: width 0.1s ease;
+        }
+        .error-message {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Medical Transcription - Real-time Streaming</h1>
+        
+        <div class="config-section">
+            <h3>Configuration</h3>
+            <div class="config-row">
+                <label for="specialty">Medical Specialty:</label>
+                <select id="specialty">
+                    <option value="PRIMARYCARE">Primary Care</option>
+                    <option value="CARDIOLOGY">Cardiology</option>
+                    <option value="NEUROLOGY">Neurology</option>
+                    <option value="ONCOLOGY">Oncology</option>
+                    <option value="RADIOLOGY">Radiology</option>
+                    <option value="UROLOGY">Urology</option>
+                </select>
+            </div>
+            <div class="config-row">
+                <label for="type">Transcription Type:</label>
+                <select id="type">
+                    <option value="CONVERSATION">Conversation</option>
+                    <option value="DICTATION">Dictation</option>
+                </select>
+            </div>
+            <div class="config-row">
+                <label for="content-id">Content ID Type:</label>
+                <select id="content-id">
+                    <option value="PHI">PHI (Protected Health Information)</option>
+                    <option value="NONE">None</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="status disconnected" id="status">
+            Status: Disconnected
+        </div>
+        
+        <div class="audio-level">
+            <div class="audio-level-bar" id="audioLevel"></div>
+        </div>
+        
+        <div class="controls">
+            <button id="connectBtn" class="btn-primary">Connect</button>
+            <button id="startBtn" class="btn-primary" disabled>Start Recording</button>
+            <button id="stopBtn" class="btn-danger" disabled>Stop Recording</button>
+            <button id="disconnectBtn" class="btn-secondary" disabled>Disconnect</button>
+            <button id="clearBtn" class="btn-secondary">Clear Transcripts</button>
+        </div>
+        
+        <div id="errorContainer"></div>
+        
+        <div class="transcript-container">
+            <div class="transcript-box">
+                <h3>Real-time Transcript</h3>
+                <div id="realtimeTranscript"></div>
+            </div>
+            <div class="transcript-box">
+                <h3>Medical Entities</h3>
+                <div id="medicalEntities"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket and audio handling
+        let ws = null;
+        let mediaRecorder = null;
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+        let isRecording = false;
+        let sessionId = null;
+        
+        // UI elements
+        const connectBtn = document.getElementById('connectBtn');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const statusDiv = document.getElementById('status');
+        const realtimeTranscript = document.getElementById('realtimeTranscript');
+        const medicalEntities = document.getElementById('medicalEntities');
+        const audioLevelBar = document.getElementById('audioLevel');
+        const errorContainer = document.getElementById('errorContainer');
+        
+        // Configuration elements
+        const specialtySelect = document.getElementById('specialty');
+        const typeSelect = document.getElementById('type');
+        const contentIdSelect = document.getElementById('content-id');
+        
+        // Entity tracking
+        const entityMap = new Map();
+        
+        // Connect to WebSocket
+        connectBtn.addEventListener('click', async () => {
+            try {
+                // Update to use the correct backend URL
+                const wsUrl = 'ws://localhost:8000/ws/medical';
+                ws = new WebSocket(wsUrl);
+                
+                ws.onopen = () => {
+                    console.log('WebSocket connected');
+                    updateStatus('connected', 'Connected to server');
+                    connectBtn.disabled = true;
+                    startBtn.disabled = false;
+                    disconnectBtn.disabled = false;
+                };
+                
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                };
+                
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    showError('WebSocket connection error');
+                };
+                
+                ws.onclose = () => {
+                    console.log('WebSocket disconnected');
+                    updateStatus('disconnected', 'Disconnected from server');
+                    resetUI();
+                };
+                
+            } catch (error) {
+                console.error('Connection error:', error);
+                showError('Failed to connect to server');
+            }
+        });
+        
+        // Start recording
+        startBtn.addEventListener('click', async () => {
+            try {
+                // Request microphone access
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        sampleSize: 16,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    } 
+                });
+                
+                // Set up audio context for visualization
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
+                analyser.fftSize = 256;
+                
+                // Start audio level visualization
+                visualizeAudioLevel();
+                
+                // Send start message with configuration
+                const config = {
+                    specialty: specialtySelect.value,
+                    type: typeSelect.value,
+                    language_code: 'en-US',
+                    sample_rate: 16000,
+                    show_speaker_labels: typeSelect.value === 'CONVERSATION',
+                    content_identification_type: contentIdSelect.value
+                };
+                
+                ws.send(JSON.stringify({
+                    type: 'start',
+                    config: config
+                }));
+                
+                // Set up MediaRecorder
+                const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: mimeType,
+                    audioBitsPerSecond: 128000
+                });
+                
+                // Process audio chunks
+                mediaRecorder.ondataavailable = async (event) => {
+                    if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+                        // Convert to PCM format
+                        const arrayBuffer = await event.data.arrayBuffer();
+                        const audioData = await convertToPCM(arrayBuffer);
+                        
+                        // Send as base64
+                        const base64Audio = btoa(String.fromCharCode(...new Uint8Array(audioData)));
+                        ws.send(JSON.stringify({
+                            type: 'audio',
+                            data: base64Audio
+                        }));
+                    }
+                };
+                
+                // Start recording with 100ms chunks
+                mediaRecorder.start(100);
+                isRecording = true;
+                
+                updateStatus('recording', 'Recording...');
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                
+                // Disable configuration during recording
+                specialtySelect.disabled = true;
+                typeSelect.disabled = true;
+                contentIdSelect.disabled = true;
+                
+            } catch (error) {
+                console.error('Error starting recording:', error);
+                showError('Failed to start recording: ' + error.message);
+            }
+        });
+        
+        // Stop recording
+        stopBtn.addEventListener('click', () => {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                mediaRecorder = null;
+                isRecording = false;
+                
+                // Stop audio visualization
+                if (audioContext) {
+                    audioContext.close();
+                    audioContext = null;
+                }
+                
+                // Send stop message
+                ws.send(JSON.stringify({ type: 'stop' }));
+                
+                updateStatus('connected', 'Recording stopped');
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                
+                // Re-enable configuration
+                specialtySelect.disabled = false;
+                typeSelect.disabled = false;
+                contentIdSelect.disabled = false;
+                
+                audioLevelBar.style.width = '0%';
+            }
+        });
+        
+        // Disconnect
+        disconnectBtn.addEventListener('click', () => {
+            if (ws) {
+                ws.close();
+            }
+        });
+        
+        // Clear transcripts
+        clearBtn.addEventListener('click', () => {
+            realtimeTranscript.innerHTML = '';
+            medicalEntities.innerHTML = '';
+            entityMap.clear();
+            errorContainer.innerHTML = '';
+        });
+        
+        // Handle WebSocket messages
+        function handleWebSocketMessage(data) {
+            switch (data.type) {
+                case 'session_started':
+                    sessionId = data.session_id;
+                    console.log('Session started:', data);
+                    break;
+                    
+                case 'transcript':
+                    displayTranscript(data);
+                    break;
+                    
+                case 'error':
+                    showError(data.error);
+                    break;
+                    
+                case 'session_ended':
+                    console.log('Session ended:', data);
+                    break;
+                    
+                case 'full_transcript':
+                    console.log('Full transcript received:', data);
+                    break;
+            }
+        }
+        
+        // Display transcript
+        function displayTranscript(data) {
+            const transcript = data.transcript;
+            const entities = data.medical_entities || [];
+            
+            // Create transcript element
+            const transcriptElement = document.createElement('div');
+            transcriptElement.className = 'transcript-item' + (transcript.is_partial ? ' partial' : '');
+            
+            // Add speaker label if available
+            if (transcript.speaker) {
+                const speakerLabel = document.createElement('span');
+                speakerLabel.className = 'speaker-label';
+                speakerLabel.textContent = `Speaker ${transcript.speaker}:`;
+                transcriptElement.appendChild(speakerLabel);
+            }
+            
+            // Add transcript text
+            const textSpan = document.createElement('span');
+            textSpan.textContent = transcript.text;
+            transcriptElement.appendChild(textSpan);
+            
+            // Add timestamp
+            const timestamp = document.createElement('div');
+            timestamp.className = 'timestamp';
+            timestamp.textContent = new Date(data.timestamp).toLocaleTimeString();
+            transcriptElement.appendChild(timestamp);
+            
+            // Update or append transcript
+            if (transcript.is_partial) {
+                // Replace last partial transcript
+                const partials = realtimeTranscript.querySelectorAll('.partial');
+                if (partials.length > 0) {
+                    partials[partials.length - 1].replaceWith(transcriptElement);
+                } else {
+                    realtimeTranscript.appendChild(transcriptElement);
+                }
+            } else {
+                // Remove any partial transcripts and add final
+                const partials = realtimeTranscript.querySelectorAll('.partial');
+                partials.forEach(p => p.remove());
+                realtimeTranscript.appendChild(transcriptElement);
+            }
+            
+            // Scroll to bottom
+            realtimeTranscript.scrollTop = realtimeTranscript.scrollHeight;
+            
+            // Update medical entities
+            updateMedicalEntities(entities);
+        }
+        
+        // Update medical entities display
+        function updateMedicalEntities(entities) {
+            entities.forEach(entity => {
+                const key = `${entity.category}:${entity.text}`;
+                if (!entityMap.has(key)) {
+                    entityMap.set(key, entity);
+                }
+            });
+            
+            // Group entities by category
+            const categorizedEntities = {};
+            entityMap.forEach(entity => {
+                if (!categorizedEntities[entity.category]) {
+                    categorizedEntities[entity.category] = [];
+                }
+                categorizedEntities[entity.category].push(entity);
+            });
+            
+            // Display entities
+            medicalEntities.innerHTML = '';
+            Object.entries(categorizedEntities).forEach(([category, entities]) => {
+                const categoryDiv = document.createElement('div');
+                categoryDiv.style.marginBottom = '15px';
+                
+                const categoryTitle = document.createElement('h4');
+                categoryTitle.textContent = formatCategoryName(category);
+                categoryTitle.style.marginBottom = '5px';
+                categoryDiv.appendChild(categoryTitle);
+                
+                entities.forEach(entity => {
+                    const entitySpan = document.createElement('span');
+                    entitySpan.className = `medical-entity entity-${category.toLowerCase()}`;
+                    entitySpan.textContent = entity.text;
+                    entitySpan.title = `Confidence: ${(entity.confidence * 100).toFixed(1)}%`;
+                    categoryDiv.appendChild(entitySpan);
+                });
+                
+                medicalEntities.appendChild(categoryDiv);
+            });
+        }
+        
+        // Format category names
+        function formatCategoryName(category) {
+            const names = {
+                'MEDICATION': 'Medications',
+                'MEDICAL_CONDITION': 'Medical Conditions',
+                'PROTECTED_HEALTH_INFORMATION': 'Protected Health Information',
+                'TEST_TREATMENT_PROCEDURE': 'Tests, Treatments & Procedures',
+                'ANATOMY': 'Anatomy'
+            };
+            return names[category] || category;
+        }
+        
+        // Update status
+        function updateStatus(className, text) {
+            statusDiv.className = 'status ' + className;
+            statusDiv.textContent = 'Status: ' + text;
+        }
+        
+        // Show error
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = message;
+            errorContainer.appendChild(errorDiv);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                errorDiv.remove();
+            }, 5000);
+        }
+        
+        // Reset UI
+        function resetUI() {
+            connectBtn.disabled = false;
+            startBtn.disabled = true;
+            stopBtn.disabled = true;
+            disconnectBtn.disabled = true;
+            
+            if (isRecording && mediaRecorder) {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                mediaRecorder = null;
+                isRecording = false;
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            
+            audioLevelBar.style.width = '0%';
+            
+            // Re-enable configuration
+            specialtySelect.disabled = false;
+            typeSelect.disabled = false;
+            contentIdSelect.disabled = false;
+        }
+        
+        // Visualize audio level
+        function visualizeAudioLevel() {
+            if (!analyser || !isRecording) return;
+            
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+            
+            // Calculate average volume
+            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+            const percentage = (average / 255) * 100;
+            
+            audioLevelBar.style.width = percentage + '%';
+            
+            requestAnimationFrame(visualizeAudioLevel);
+        }
+        
+        // Convert audio to PCM format
+        async function convertToPCM(audioBuffer) {
+            // This is a simplified conversion - in production, you'd want to use
+            // a proper audio processing library or Web Audio API for accurate conversion
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const arrayBuffer = await audioCtx.decodeAudioData(audioBuffer);
+            
+            // Get PCM data from the first channel
+            const pcmData = arrayBuffer.getChannelData(0);
+            
+            // Convert float32 to int16
+            const int16Array = new Int16Array(pcmData.length);
+            for (let i = 0; i < pcmData.length; i++) {
+                const sample = Math.max(-1, Math.min(1, pcmData[i]));
+                int16Array[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+            }
+            
+            return int16Array.buffer;
+        }
+    </script>
+</body>
+</html>

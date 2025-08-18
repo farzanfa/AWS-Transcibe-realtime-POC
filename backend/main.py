@@ -13,6 +13,7 @@ import boto3
 from botocore.exceptions import ClientError
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from medical_streaming import handle_medical_websocket
 
 # Configure logging
 logging.basicConfig(
@@ -360,6 +361,12 @@ async def websocket_endpoint(websocket: WebSocket):
         if session.running:
             await session.stop_transcription()
         logger.info("WebSocket connection closed")
+
+
+@app.websocket("/ws/medical")
+async def medical_websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time medical transcription using StartMedicalStreamTranscription."""
+    await handle_medical_websocket(websocket)
 
 
 @app.get("/health")
