@@ -14,6 +14,9 @@ Browser Microphone → HTML/JS Client (WebRTC) → FastAPI Backend (WebSocket) �
 - 🏥 **Medical Transcription**: Real-time medical speech-to-text using AWS Transcribe Medical Streaming API
 - 🔄 **Live Transcription**: Real-time transcription with medical terminology recognition
 - 💊 **Medical Specialties**: Support for PRIMARYCARE, CARDIOLOGY, NEUROLOGY, ONCOLOGY, RADIOLOGY, and UROLOGY
+- 🏷️ **Medical Entity Recognition**: Automatic detection of medications, conditions, anatomy, and procedures
+- 👥 **Speaker Identification**: Distinguish between multiple speakers in conversations
+- 🔒 **PHI Detection**: Protected Health Information identification and handling
 - 💾 **Automatic Saving**: Final transcripts saved to S3 with timestamp filenames
 - 🐳 **Dockerized**: Complete containerization for easy deployment
 - 🏗️ **Infrastructure as Code**: Terraform configuration for AWS resources
@@ -56,6 +59,36 @@ Browser Microphone → HTML/JS Client (WebRTC) → FastAPI Backend (WebSocket) �
   "s3_key": "20241215_143022.txt"
 }
 ```
+
+### API Endpoints
+
+#### WebSocket Endpoints
+
+1. **Regular Transcription**: `ws://localhost:8000/ws`
+   - Original endpoint for standard medical transcription
+   - Limited medical entity extraction
+
+2. **Medical Streaming**: `ws://localhost:8000/ws/medical`
+   - Enhanced endpoint using `StartMedicalStreamTranscription`
+   - Full medical entity recognition
+   - Speaker identification support
+   - PHI detection capabilities
+
+#### REST Endpoints
+
+- **Health Check**: `GET /health`
+- **Configuration**: `GET /config`
+
+### Real-Time Medical Streaming
+
+For advanced real-time streaming with full medical capabilities, use the `/ws/medical` endpoint. This endpoint leverages AWS Transcribe Medical's `StartMedicalStreamTranscription` API to provide:
+
+- Real-time medical entity extraction (medications, conditions, procedures, anatomy)
+- Speaker diarization for multi-speaker conversations
+- Protected Health Information (PHI) identification
+- Specialty-specific vocabulary models
+
+See [Real-Time Medical Streaming Documentation](docs/REAL_TIME_MEDICAL_STREAMING.md) for detailed usage instructions.
 
 ## Prerequisites
 
