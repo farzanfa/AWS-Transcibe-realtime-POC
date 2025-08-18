@@ -5,19 +5,21 @@ This backend service has been updated to support AWS Transcribe Medical for real
 
 ## Key Changes Made
 
-1. **Fixed the TranscribeService Error**: The original error `'TranscribeService' object has no attribute 'start_medical_stream_transcription_websocket'` has been resolved. 
+1. **Fixed the TranscribeService Error**: The original error `'TranscribeService' object has no attribute 'start_medical_stream_transcription_websocket'` has been resolved by using the correct boto3 method name.
    
-   **Important Note**: AWS Transcribe Medical does NOT support real-time streaming via WebSocket. The medical transcription streaming is only available through the batch API. When `USE_MEDICAL_TRANSCRIBE` is set to `true`, the system will:
-   - Log a warning about the limitation
-   - Fall back to regular AWS Transcribe streaming
-   - You can still use medical vocabulary and terminology, but without the specialized medical models
+   **Important Note**: AWS Transcribe Medical streaming uses HTTP/2, not WebSocket. The implementation now correctly uses:
+   - `start_medical_stream_transcription` for medical transcription (HTTP/2 based)
+   - `start_stream_transcription` for regular transcription
+   
+   When `USE_MEDICAL_TRANSCRIBE` is set to `true`, the system will use the medical-specific models with the configured specialty and type.
 
 2. **Implementation Details**:
-   - Uses the `transcribestreaming` boto3 client with `start_stream_transcription` method
-   - Regular transcription works via WebSocket streaming for real-time transcription
-   - Medical transcription configuration is preserved but uses regular streaming
-   - Processes streaming responses asynchronously
+   - Uses the `transcribestreaming` boto3 client
+   - Medical transcription: `start_medical_stream_transcription` method (HTTP/2)
+   - Regular transcription: `start_stream_transcription` method
+   - Both process streaming responses asynchronously
    - Saves final transcripts to S3 with proper medical/regular tagging
+   - Falls back to regular transcription if medical streaming fails
 
 ## Environment Variables
 
@@ -170,29 +172,26 @@ AWS Transcribe Medical supports the following specialties:
 - AWS CloudWatch: Check for AWS Transcribe API errors
 - S3 bucket: Verify transcripts are being saved
 
-## Alternatives for Medical Transcription
+## Medical Transcription Features
 
-Since real-time medical transcription is not available via WebSocket, consider these alternatives:
+AWS Transcribe Medical streaming provides:
 
-1. **Batch Medical Transcription**:
-   - Use AWS Transcribe Medical batch API for processing audio files
-   - Upload audio to S3 and process asynchronously
-   - Better accuracy with medical-specific models
+1. **Real-time Medical Transcription**:
+   - Streaming transcription with medical-specific models
+   - Support for various medical specialties (Primary Care, Cardiology, etc.)
+   - Conversation and dictation modes
+   - HTTP/2-based streaming (not WebSocket)
 
-2. **Custom Medical Vocabulary**:
-   - Create custom vocabularies with medical terms for regular Transcribe
-   - Use vocabulary filters to improve medical term recognition
-   - See AWS documentation for custom vocabulary setup
+2. **Enhanced Accuracy**:
+   - Medical terminology recognition
+   - Specialty-specific vocabulary
+   - Better handling of medical abbreviations and drug names
 
-3. **Post-Processing**:
-   - Use regular transcription for real-time
-   - Apply medical NLP processing on the transcripts
-   - Consider AWS Comprehend Medical for entity extraction
-
-4. **Hybrid Approach**:
-   - Use regular transcription for real-time display
-   - Process the saved audio with Transcribe Medical batch API for final records
-   - Provide both real-time and high-accuracy transcripts
+3. **Additional Options**:
+   - **Batch Processing**: For non-real-time needs, use the batch API
+   - **Custom Vocabularies**: Enhance recognition of specific terms
+   - **Post-Processing**: Use AWS Comprehend Medical for entity extraction
+   - **Hybrid Approach**: Combine streaming and batch for different use cases
 
 ## Performance Considerations
 

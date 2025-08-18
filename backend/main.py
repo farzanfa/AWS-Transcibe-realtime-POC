@@ -67,8 +67,7 @@ class TranscriptionSession:
         try:
             if USE_MEDICAL_TRANSCRIBE:
                 # Use Amazon Transcribe Medical
-                logger.info(f"Medical transcription requested with specialty: {MEDICAL_SPECIALTY}, type: {MEDICAL_TYPE}")
-                logger.info("Note: Real-time medical transcription via WebSocket is not supported by AWS. Using standard transcription.")
+                logger.info(f"Starting medical transcription with specialty: {MEDICAL_SPECIALTY}, type: {MEDICAL_TYPE}")
                 self.stream = await self._start_medical_stream()
             else:
                 # Use regular Amazon Transcribe
@@ -93,19 +92,17 @@ class TranscriptionSession:
     async def _start_medical_stream(self):
         """Start medical transcription stream."""
         try:
-            # Medical transcription streaming is not available via WebSocket API
-            # Use regular transcription with medical vocabulary
-            logger.warning("Medical transcription streaming is not available via WebSocket API. Using regular transcription.")
-            logger.info(f"Note: For medical transcription, consider using batch processing or the regular Transcribe Medical API")
-            
-            # Start regular stream with vocabulary filter if needed
+            # Medical transcription uses HTTP/2 streaming (not WebSocket)
+            # Use start_medical_stream_transcription method
             loop = asyncio.get_event_loop()
             stream = await loop.run_in_executor(
                 self.executor,
-                lambda: transcribe_client.start_stream_transcription(
-                    language_code=TRANSCRIBE_LANGUAGE_CODE,
+                lambda: transcribe_client.start_medical_stream_transcription(
+                    language_code=TRANSCRIBE_LANGUAGE_CODE,  # Only 'en-US' supported for medical
                     media_sample_rate_hz=16000,
                     media_encoding='pcm',
+                    specialty=MEDICAL_SPECIALTY,
+                    type=MEDICAL_TYPE,
                     enable_channel_identification=False,
                     number_of_channels=1
                 )
@@ -113,8 +110,14 @@ class TranscriptionSession:
             return stream
             
         except ClientError as e:
-            logger.error(f"AWS Client Error: {e}")
-            raise
+            logger.error(f"AWS Client Error starting medical stream: {e}")
+            # Fallback to regular transcription if medical is not available
+            logger.warning("Medical transcription failed, falling back to regular transcription")
+            return await self._start_regular_stream()
+        except AttributeError as e:
+            logger.error(f"Method not found: {e}")
+            logger.warning("Medical streaming method not available, falling back to regular transcription")
+            return await self._start_regular_stream()
     
     async def _start_regular_stream(self):
         """Start regular transcription stream."""
