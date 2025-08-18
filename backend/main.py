@@ -5,8 +5,9 @@ import logging
 import os
 from datetime import datetime
 from typing import Dict, Any
-import struct
 import uuid
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 from botocore.exceptions import ClientError
@@ -33,7 +34,7 @@ if not S3_BUCKET:
 
 # Initialize AWS clients
 s3_client = boto3.client('s3', region_name=AWS_REGION)
-transcribe_streaming_client = boto3.client('transcribestreaming', region_name=AWS_REGION)
+transcribe_client = boto3.client('transcribestreaming', region_name=AWS_REGION)
 
 app = FastAPI(title="Speech Transcription Backend")
 
@@ -52,11 +53,14 @@ class TranscriptionSession:
     
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
-        self.transcribe_stream = None
+        self.stream = None
+        self.input_stream = None
+        self.output_stream = None
         self.running = False
         self.final_transcripts = []
-        self.response_stream = None
         self.stream_id = str(uuid.uuid4())
+        self.executor = ThreadPoolExecutor(max_workers=2)
+        self._response_handler_task = None
     
     async def start_transcription(self):
         """Start AWS Transcribe streaming session."""
@@ -64,16 +68,20 @@ class TranscriptionSession:
             if USE_MEDICAL_TRANSCRIBE:
                 # Use Amazon Transcribe Medical
                 logger.info(f"Starting medical transcription with specialty: {MEDICAL_SPECIALTY}, type: {MEDICAL_TYPE}")
-                self.transcribe_stream = await self._start_medical_stream()
+                self.stream = await self._start_medical_stream()
             else:
                 # Use regular Amazon Transcribe
                 logger.info("Starting regular transcription")
-                self.transcribe_stream = await self._start_regular_stream()
+                self.stream = await self._start_regular_stream()
             
             self.running = True
             
-            # Start processing transcription events in background
-            asyncio.create_task(self._process_transcription_events())
+            # Get input and output streams
+            self.input_stream = self.stream['AudioInputStream']
+            self.output_stream = self.stream['TranscriptResultStream']
+            
+            # Start processing responses in background
+            self._response_handler_task = asyncio.create_task(self._handle_stream_responses())
             
             logger.info(f"Started transcription stream: {self.stream_id}")
             
@@ -82,107 +90,133 @@ class TranscriptionSession:
             raise
     
     async def _start_medical_stream(self):
-        """Start medical transcription stream using boto3."""
+        """Start medical transcription stream."""
         try:
-            # Start medical stream transcription
-            response = transcribe_streaming_client.start_medical_stream_transcription(
-                LanguageCode=TRANSCRIBE_LANGUAGE_CODE,
-                MediaSampleRateHertz=16000,
-                MediaEncoding='pcm',
-                Specialty=MEDICAL_SPECIALTY,
-                Type=MEDICAL_TYPE,
-                EnableChannelIdentification=False,
-                NumberOfChannels=1
+            # Use the synchronous method in an executor
+            loop = asyncio.get_event_loop()
+            stream = await loop.run_in_executor(
+                self.executor,
+                lambda: transcribe_client.start_medical_stream_transcription_websocket(
+                    language_code=TRANSCRIBE_LANGUAGE_CODE,
+                    media_sample_rate_hz=16000,
+                    media_encoding='pcm',
+                    specialty=MEDICAL_SPECIALTY,
+                    type=MEDICAL_TYPE,
+                    enable_channel_identification=False,
+                    number_of_channels=1
+                )
             )
-            
-            self.response_stream = response['TranscriptResultStream']
-            return response
+            return stream
             
         except ClientError as e:
             logger.error(f"AWS Client Error: {e}")
-            raise
+            # Fallback to regular transcription if medical is not available
+            logger.warning("Medical transcription failed, falling back to regular transcription")
+            return await self._start_regular_stream()
     
     async def _start_regular_stream(self):
-        """Start regular transcription stream using boto3."""
+        """Start regular transcription stream."""
         try:
-            # Start regular stream transcription
-            response = transcribe_streaming_client.start_stream_transcription(
-                LanguageCode=TRANSCRIBE_LANGUAGE_CODE,
-                MediaSampleRateHertz=16000,
-                MediaEncoding='pcm',
-                EnableChannelIdentification=False,
-                NumberOfChannels=1
+            # Use the synchronous method in an executor
+            loop = asyncio.get_event_loop()
+            stream = await loop.run_in_executor(
+                self.executor,
+                lambda: transcribe_client.start_stream_transcription_websocket(
+                    language_code=TRANSCRIBE_LANGUAGE_CODE,
+                    media_sample_rate_hz=16000,
+                    media_encoding='pcm',
+                    enable_channel_identification=False,
+                    number_of_channels=1
+                )
             )
-            
-            self.response_stream = response['TranscriptResultStream']
-            return response
+            return stream
             
         except ClientError as e:
             logger.error(f"AWS Client Error: {e}")
             raise
     
-    async def _process_transcription_events(self):
-        """Process transcription events from AWS Transcribe."""
+    async def _handle_stream_responses(self):
+        """Handle responses from the transcription stream."""
         try:
-            # Process events from the transcription stream
-            async for event in self.response_stream:
-                if 'TranscriptEvent' in event:
-                    transcript_event = event['TranscriptEvent']
-                    
-                    if 'Transcript' in transcript_event:
-                        results = transcript_event['Transcript'].get('Results', [])
-                        
-                        for result in results:
-                            if result.get('Alternatives'):
+            # Process events from the output stream
+            loop = asyncio.get_event_loop()
+            
+            def process_events():
+                try:
+                    for event in self.output_stream:
+                        if not self.running:
+                            break
+                            
+                        if 'TranscriptEvent' in event:
+                            transcript = event['TranscriptEvent']['Transcript']
+                            
+                            for result in transcript.get('Results', []):
+                                if not result.get('Alternatives'):
+                                    continue
+                                    
                                 alternative = result['Alternatives'][0]
-                                transcript = alternative.get('Transcript', '')
+                                transcript_text = alternative.get('Transcript', '')
                                 
-                                if transcript:
+                                if transcript_text:
                                     is_final = not result.get('IsPartial', True)
                                     
-                                    # Send real-time transcript to client
-                                    message = {
-                                        "type": "transcript",
-                                        "text": transcript,
-                                        "is_final": is_final
-                                    }
+                                    # Schedule sending to websocket
+                                    asyncio.run_coroutine_threadsafe(
+                                        self._send_transcript(transcript_text, is_final),
+                                        loop
+                                    )
                                     
-                                    try:
-                                        await self.websocket.send_text(json.dumps(message))
-                                        logger.debug(f"Sent transcript: {transcript} (final: {is_final})")
-                                        
-                                        # Store final transcripts for later saving
-                                        if is_final and transcript.strip():
-                                            self.final_transcripts.append(transcript)
-                                            
-                                    except Exception as e:
-                                        logger.error(f"Error sending transcript: {e}")
-                                        break
-                
-                elif 'BadRequestException' in event:
-                    logger.error(f"Bad request: {event['BadRequestException']}")
-                    break
-                    
+                        elif 'BadRequestException' in event:
+                            logger.error(f"Bad request: {event['BadRequestException']['Message']}")
+                            break
+                            
+                except Exception as e:
+                    logger.error(f"Error processing events: {e}")
+            
+            # Run event processing in executor
+            await loop.run_in_executor(self.executor, process_events)
+            
         except Exception as e:
-            logger.error(f"Error processing transcription events: {e}")
+            logger.error(f"Error in response handler: {e}")
         finally:
+            self.running = False
+    
+    async def _send_transcript(self, transcript: str, is_final: bool):
+        """Send transcript to client via WebSocket."""
+        try:
+            message = {
+                "type": "transcript",
+                "text": transcript,
+                "is_final": is_final
+            }
+            
+            await self.websocket.send_text(json.dumps(message))
+            logger.debug(f"Sent transcript: {transcript} (final: {is_final})")
+            
+            # Store final transcripts
+            if is_final and transcript.strip():
+                self.final_transcripts.append(transcript)
+                
+        except Exception as e:
+            logger.error(f"Error sending transcript: {e}")
             self.running = False
     
     async def send_audio(self, audio_data: bytes):
         """Send audio data to transcription stream."""
-        if self.transcribe_stream and self.running:
+        if self.input_stream and self.running:
             try:
-                # Create audio event for boto3 transcribe streaming
+                # Create audio event
                 audio_event = {
                     'AudioEvent': {
                         'AudioChunk': audio_data
                     }
                 }
                 
-                # Send audio chunk to transcribe
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: self.transcribe_stream['AudioInputStream'].send(audio_event)
+                # Send audio in executor to avoid blocking
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    self.executor,
+                    lambda: self.input_stream._write_to_stream(audio_event)
                 )
                 
             except Exception as e:
@@ -193,18 +227,33 @@ class TranscriptionSession:
         """Stop transcription and save final transcript to S3."""
         self.running = False
         
-        if self.transcribe_stream:
+        if self.input_stream:
             try:
                 # Send end frame
-                end_frame = {'AudioEvent': {}}
-                self.transcribe_stream['AudioInputStream'].send(end_frame)
-                self.transcribe_stream['AudioInputStream'].close()
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    self.executor,
+                    lambda: self.input_stream._write_to_stream({})
+                )
                 
-                # Give some time for final events to process
-                await asyncio.sleep(2)
+                # Close the input stream
+                await loop.run_in_executor(
+                    self.executor,
+                    self.input_stream.close
+                )
                 
             except Exception as e:
-                logger.error(f"Error ending stream: {e}")
+                logger.error(f"Error closing stream: {e}")
+        
+        # Wait for response handler to finish
+        if self._response_handler_task:
+            try:
+                await asyncio.wait_for(self._response_handler_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("Response handler timeout")
+        
+        # Shutdown executor
+        self.executor.shutdown(wait=True)
         
         # Concatenate final transcripts and save to S3
         final_text = " ".join(self.final_transcripts)
