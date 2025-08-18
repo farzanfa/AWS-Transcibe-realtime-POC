@@ -35,7 +35,7 @@ if not S3_BUCKET:
 
 # Initialize AWS clients
 s3_client = boto3.client('s3', region_name=AWS_REGION)
-transcribe_client = boto3.client('transcribestreaming', region_name=AWS_REGION)
+transcribe_client = boto3.client('transcribe', region_name=AWS_REGION)
 
 app = FastAPI(title="Speech Transcription Backend")
 
