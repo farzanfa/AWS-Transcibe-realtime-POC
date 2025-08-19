@@ -174,11 +174,20 @@ func handleWebSocket(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	// Create a new session
-	session := NewSession(conn)
-	
-	// Handle the WebSocket session
-	if err := session.Handle(); err != nil {
-		log.Printf("Session error: %v", err)
+	// Handle multiple sessions on the same WebSocket connection
+	for {
+		// Create a new session for each recording
+		session := NewSession(conn)
+		
+		// Handle the WebSocket session
+		if err := session.Handle(); err != nil {
+			// Check if it's a normal closure or an actual error
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("WebSocket error: %v", err)
+				break
+			}
+			// For other errors (like session ended), continue to allow new sessions
+			log.Printf("Session ended: %v", err)
+		}
 	}
 }
