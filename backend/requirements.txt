@@ -6,4 +6,5 @@ websockets==11.0.3
 amazon-transcribe==0.6.1
 awscrt==0.16.16
 pydantic==1.10.7
-python-multipart==0.0.6httpx[http2]==0.25.2
+python-multipart==0.0.6
+httpx[http2]==0.25.2
