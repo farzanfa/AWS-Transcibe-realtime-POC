@@ -1,6 +1,6 @@
 # Real-time Medical Speech Transcription POC
 
- A production-lean proof of concept for real-time medical speech transcription using AWS Transcribe Medical Streaming, built with a FastAPI backend and an HTML/JavaScript frontend, both containerized with Docker.
+ A production-lean proof of concept for real-time medical speech transcription using AWS Transcribe Medical Streaming, built with a FastAPI backend (with Go alternative) and an HTML/JavaScript frontend, both containerized with Docker.
 
 ## Architecture
 
@@ -148,6 +148,9 @@ docker compose up --build
 
 # Or run in background
 docker compose up -d --build
+
+# Alternative: Use Go backend instead of Python
+docker compose -f docker-compose.go.yml up --build
 ```
 
 ### 4. Access the Application

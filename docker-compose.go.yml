@@ -1,0 +1,47 @@
+services:
+  backend-go:
+    build:
+      context: ./backend-go
+      dockerfile: Dockerfile
+    container_name: transcription-backend-go
+    ports:
+      - "8000:8000"
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - S3_BUCKET=${S3_BUCKET}
+      - LANGUAGE_CODE=${LANGUAGE_CODE:-en-US}
+      - MEDICAL_SPECIALTY=${MEDICAL_SPECIALTY:-PRIMARYCARE}
+      - MEDICAL_TYPE=${MEDICAL_TYPE:-CONVERSATION}
+      - MEDICAL_VOCABULARY_NAME=${MEDICAL_VOCABULARY_NAME:-}
+      - CONTENT_IDENTIFICATION_TYPE=${CONTENT_IDENTIFICATION_TYPE:-PHI}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PORT=8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - transcription-network
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: transcription-client
+    ports:
+      - "8080:8080"
+    depends_on:
+      backend-go:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - transcription-network
+
+networks:
+  transcription-network:
+    driver: bridge
