@@ -14,6 +14,9 @@ from botocore.exceptions import ClientError
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from medical_streaming import handle_medical_websocket
+from medical_streaming_direct import handle_direct_medical_websocket
+from medical_streaming_http2 import handle_http2_medical_websocket
+from medical_streaming_unified import handle_unified_medical_websocket
 
 # Configure logging
 logging.basicConfig(
@@ -367,6 +370,24 @@ async def websocket_endpoint(websocket: WebSocket):
 async def medical_websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time medical transcription using StartMedicalStreamTranscription."""
     await handle_medical_websocket(websocket)
+
+
+@app.websocket("/ws/medical/direct")
+async def medical_direct_websocket_endpoint(websocket: WebSocket):
+    """Direct WebSocket implementation for AWS Transcribe Medical streaming."""
+    await handle_direct_medical_websocket(websocket)
+
+
+@app.websocket("/ws/medical/http2")
+async def medical_http2_websocket_endpoint(websocket: WebSocket):
+    """HTTP/2 implementation for AWS Transcribe Medical streaming."""
+    await handle_http2_medical_websocket(websocket)
+
+
+@app.websocket("/ws/medical/unified")
+async def medical_unified_websocket_endpoint(websocket: WebSocket):
+    """Unified Direct API endpoint supporting both WebSocket and HTTP/2 protocols."""
+    await handle_unified_medical_websocket(websocket)
 
 
 @app.get("/health")
