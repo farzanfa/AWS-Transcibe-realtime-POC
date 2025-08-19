@@ -10,6 +10,7 @@ import logging
 import os
 import struct
 import uuid
+import zlib
 from datetime import datetime
 from typing import Dict, Any, Optional
 from urllib.parse import urlencode
@@ -202,19 +203,100 @@ class DirectMedicalTranscriptionSession:
     
     def _encode_event_stream(self, headers: Dict[str, str], payload: bytes) -> bytes:
         """Encode a message in AWS event stream format."""
-        # This is a simplified version - full implementation would include
-        # proper event stream encoding with headers and CRC
-        # For now, return the raw audio data
-        return payload
+        encoded_headers = self._encode_headers(headers)
+        
+        # Calculate total length
+        total_length = 12 + len(encoded_headers) + len(payload) + 4
+        
+        # Create prelude
+        prelude = struct.pack('!I', total_length)
+        prelude += struct.pack('!I', len(encoded_headers))
+        
+        # Calculate prelude CRC
+        prelude_crc = zlib.crc32(prelude) & 0xffffffff
+        prelude += struct.pack('!I', prelude_crc)
+        
+        # Combine message
+        message = prelude + encoded_headers + payload
+        
+        # Calculate message CRC
+        message_crc = zlib.crc32(message) & 0xffffffff
+        message += struct.pack('!I', message_crc)
+        
+        return message
+    
+    def _encode_headers(self, headers: Dict[str, str]) -> bytes:
+        """Encode headers for event stream."""
+        encoded = b''
+        
+        for name, value in headers.items():
+            # Encode header name
+            name_bytes = name.encode('utf-8')
+            encoded += struct.pack('!B', len(name_bytes))
+            encoded += name_bytes
+            
+            # Encode header value (string type = 7)
+            encoded += struct.pack('!B', 7)
+            value_bytes = value.encode('utf-8')
+            encoded += struct.pack('!H', len(value_bytes))
+            encoded += value_bytes
+        
+        return encoded
     
     def _parse_event_stream(self, data: bytes) -> Optional[Dict[str, Any]]:
         """Parse AWS event stream message."""
         try:
-            # Simplified parsing - in production, implement full event stream parsing
-            # For now, try to parse as JSON
-            text = data.decode('utf-8')
-            return json.loads(text)
-        except:
+            if len(data) < 16:  # Minimum message size
+                return None
+            
+            # Parse prelude
+            total_length = struct.unpack('!I', data[0:4])[0]
+            headers_length = struct.unpack('!I', data[4:8])[0]
+            prelude_crc = struct.unpack('!I', data[8:12])[0]
+            
+            # Verify prelude CRC
+            prelude_data = data[0:8]
+            calculated_crc = zlib.crc32(prelude_data) & 0xffffffff
+            if calculated_crc != prelude_crc:
+                logger.warning("Prelude CRC mismatch")
+                return None
+            
+            # Parse headers
+            headers = {}
+            header_data = data[12:12 + headers_length]
+            offset = 0
+            
+            while offset < headers_length:
+                # Parse header name
+                name_length = header_data[offset]
+                offset += 1
+                name = header_data[offset:offset + name_length].decode('utf-8')
+                offset += name_length
+                
+                # Parse header value (assuming string type)
+                value_type = header_data[offset]
+                offset += 1
+                
+                if value_type == 7:  # String
+                    value_length = struct.unpack('!H', header_data[offset:offset + 2])[0]
+                    offset += 2
+                    value = header_data[offset:offset + value_length].decode('utf-8')
+                    offset += value_length
+                    headers[name] = value
+            
+            # Extract payload
+            payload_start = 12 + headers_length
+            payload_end = total_length - 4
+            payload = data[payload_start:payload_end]
+            
+            # Check if it's a transcript event
+            if headers.get(':event-type') == 'TranscriptEvent':
+                return json.loads(payload.decode('utf-8'))
+            
+            return None
+            
+        except Exception as e:
+            logger.debug(f"Error parsing event stream: {e}")
             return None
     
     async def _process_transcript(self, transcript: Dict[str, Any]):
