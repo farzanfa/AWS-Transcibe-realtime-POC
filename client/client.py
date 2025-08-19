@@ -38,9 +38,15 @@ logger = logging.getLogger(__name__)
 class MedicalStreamingClient:
     """Client for real-time medical transcription via WebSocket."""
     
-    def __init__(self, websocket_url: str = "ws://localhost:8000/ws/medical"):
+    def __init__(self, websocket_url: str = None):
         if not AUDIO_LIBS_AVAILABLE:
             raise ImportError("Required audio libraries not available. Install with: pip install pyaudio websockets numpy")
+        
+        # Use environment variable or default
+        if websocket_url is None:
+            backend_host = os.environ.get('BACKEND_HOST', 'localhost')
+            backend_port = os.environ.get('BACKEND_PORT', '8000')
+            websocket_url = f"ws://{backend_host}:{backend_port}/ws"
             
         self.websocket_url = websocket_url
         self.websocket = None
@@ -303,7 +309,7 @@ async def run_python_client(url: str = None):
         print("Install with: pip install pyaudio websockets numpy")
         return
         
-    client = MedicalStreamingClient(url or "ws://localhost:8000/ws/medical")
+    client = MedicalStreamingClient(url or "ws://localhost:8000/ws")
     await client.run_interactive()
 
 
@@ -326,7 +332,7 @@ def main():
     )
     parser.add_argument(
         '--url',
-        default='ws://localhost:8000/ws/medical',
+        default='ws://localhost:8000/ws',
         help='WebSocket URL for Python client'
     )
     
