@@ -1,8 +1,3 @@
-"""
-Unified Speech Transcription Backend
-Consolidated version with all transcription functionality in a single file.
-"""
-
 import asyncio
 import base64
 import json
@@ -18,6 +13,10 @@ import boto3
 from botocore.exceptions import ClientError
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from medical_streaming import handle_medical_websocket
+from medical_streaming_direct import handle_direct_medical_websocket
+from medical_streaming_http2 import handle_http2_medical_websocket
+from medical_streaming_unified import handle_unified_medical_websocket
 
 # Configure logging
 logging.basicConfig(
@@ -31,8 +30,8 @@ AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
 S3_BUCKET = os.getenv('S3_BUCKET')
 TRANSCRIBE_LANGUAGE_CODE = os.getenv('TRANSCRIBE_LANGUAGE_CODE', 'en-US')
 USE_MEDICAL_TRANSCRIBE = os.getenv('USE_MEDICAL_TRANSCRIBE', 'true').lower() == 'true'
-MEDICAL_SPECIALTY = os.getenv('MEDICAL_SPECIALTY', 'PRIMARYCARE')
-MEDICAL_TYPE = os.getenv('MEDICAL_TYPE', 'CONVERSATION')
+MEDICAL_SPECIALTY = os.getenv('MEDICAL_SPECIALTY', 'PRIMARYCARE')  # PRIMARYCARE, CARDIOLOGY, NEUROLOGY, ONCOLOGY, RADIOLOGY, UROLOGY
+MEDICAL_TYPE = os.getenv('MEDICAL_TYPE', 'CONVERSATION')  # CONVERSATION or DICTATION
 
 if not S3_BUCKET:
     raise ValueError("S3_BUCKET environment variable is required")
@@ -70,20 +69,15 @@ class TranscriptionSession:
     async def start_transcription(self):
         """Start AWS Transcribe streaming session."""
         try:
-            logger.info("Starting transcription session")
-            
-            # Start regular stream (medical streaming requires different API)
-            loop = asyncio.get_event_loop()
-            self.stream = await loop.run_in_executor(
-                self.executor,
-                lambda: transcribe_client.start_stream_transcription(
-                    language_code=TRANSCRIBE_LANGUAGE_CODE,
-                    media_sample_rate_hz=16000,
-                    media_encoding='pcm',
-                    enable_channel_identification=False,
-                    number_of_channels=1
-                )
-            )
+            if USE_MEDICAL_TRANSCRIBE:
+                # Use Amazon Transcribe Medical
+                logger.info(f"Medical transcription requested with specialty: {MEDICAL_SPECIALTY}, type: {MEDICAL_TYPE}")
+                logger.info("Note: Real-time medical transcription via WebSocket is not supported by AWS. Using standard transcription.")
+                self.stream = await self._start_medical_stream()
+            else:
+                # Use regular Amazon Transcribe
+                logger.info("Starting regular transcription")
+                self.stream = await self._start_regular_stream()
             
             self.running = True
             
@@ -100,9 +94,57 @@ class TranscriptionSession:
             logger.error(f"Failed to start transcription: {e}")
             raise
     
+    async def _start_medical_stream(self):
+        """Start medical transcription stream."""
+        try:
+            # Medical transcription streaming is not available via WebSocket API
+            # Use regular transcription with medical vocabulary
+            logger.warning("Medical transcription streaming is not available via WebSocket API. Using regular transcription.")
+            logger.info(f"Note: For medical transcription, consider using batch processing or the regular Transcribe Medical API")
+            
+            # Start regular stream with vocabulary filter if needed
+            loop = asyncio.get_event_loop()
+            stream = await loop.run_in_executor(
+                self.executor,
+                lambda: transcribe_client.start_stream_transcription(
+                    language_code=TRANSCRIBE_LANGUAGE_CODE,
+                    media_sample_rate_hz=16000,
+                    media_encoding='pcm',
+                    enable_channel_identification=False,
+                    number_of_channels=1
+                )
+            )
+            return stream
+            
+        except ClientError as e:
+            logger.error(f"AWS Client Error: {e}")
+            raise
+    
+    async def _start_regular_stream(self):
+        """Start regular transcription stream."""
+        try:
+            # Use the synchronous method in an executor
+            loop = asyncio.get_event_loop()
+            stream = await loop.run_in_executor(
+                self.executor,
+                lambda: transcribe_client.start_stream_transcription(
+                    language_code=TRANSCRIBE_LANGUAGE_CODE,
+                    media_sample_rate_hz=16000,
+                    media_encoding='pcm',
+                    enable_channel_identification=False,
+                    number_of_channels=1
+                )
+            )
+            return stream
+            
+        except ClientError as e:
+            logger.error(f"AWS Client Error: {e}")
+            raise
+    
     async def _handle_stream_responses(self):
         """Handle responses from the transcription stream."""
         try:
+            # Process events from the output stream
             loop = asyncio.get_event_loop()
             
             def process_events():
@@ -324,58 +366,28 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("WebSocket connection closed")
 
 
-# Medical transcription endpoints - placeholder implementations
-# Note: Real-time medical transcription requires additional AWS setup and APIs
 @app.websocket("/ws/medical")
 async def medical_websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for medical transcription."""
-    await websocket.accept()
-    await websocket.send_text(json.dumps({
-        "type": "info",
-        "message": "Medical transcription requires AWS Transcribe Medical API setup",
-        "note": "Using regular transcription for now"
-    }))
-    # Reuse regular transcription session
-    await websocket_endpoint(websocket)
+    """WebSocket endpoint for real-time medical transcription using StartMedicalStreamTranscription."""
+    await handle_medical_websocket(websocket)
 
 
 @app.websocket("/ws/medical/direct")
 async def medical_direct_websocket_endpoint(websocket: WebSocket):
     """Direct WebSocket implementation for AWS Transcribe Medical streaming."""
-    await websocket.accept()
-    await websocket.send_text(json.dumps({
-        "type": "info",
-        "message": "Direct medical transcription requires AWS Transcribe Medical streaming setup",
-        "note": "Using regular transcription for now"
-    }))
-    # Reuse regular transcription session
-    await websocket_endpoint(websocket)
+    await handle_direct_medical_websocket(websocket)
 
 
 @app.websocket("/ws/medical/http2")
 async def medical_http2_websocket_endpoint(websocket: WebSocket):
     """HTTP/2 implementation for AWS Transcribe Medical streaming."""
-    await websocket.accept()
-    await websocket.send_text(json.dumps({
-        "type": "info",
-        "message": "HTTP/2 medical transcription requires specialized setup",
-        "note": "Using regular transcription for now"
-    }))
-    # Reuse regular transcription session
-    await websocket_endpoint(websocket)
+    await handle_http2_medical_websocket(websocket)
 
 
 @app.websocket("/ws/medical/unified")
 async def medical_unified_websocket_endpoint(websocket: WebSocket):
     """Unified Direct API endpoint supporting both WebSocket and HTTP/2 protocols."""
-    await websocket.accept()
-    await websocket.send_text(json.dumps({
-        "type": "info",
-        "message": "Unified medical transcription endpoint",
-        "note": "Using regular transcription for now"
-    }))
-    # Reuse regular transcription session
-    await websocket_endpoint(websocket)
+    await handle_unified_medical_websocket(websocket)
 
 
 @app.get("/health")

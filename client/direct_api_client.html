@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS Transcribe Medical Direct API Client</title>
+    <style>
+        :root {
+            --primary: #FF9900;
+            --secondary: #232F3E;
+            --success: #067D62;
+            --danger: #D13212;
+            --background: #FAFAFA;
+            --card: #FFFFFF;
+            --text: #16191F;
+            --text-light: #687078;
+            --border: #D5DBDB;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--background);
+            color: var(--text);
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 40px 0;
+            background: var(--card);
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .header h1 {
+            color: var(--secondary);
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: var(--text-light);
+            font-size: 1.1rem;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .sidebar {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .sidebar h3 {
+            color: var(--secondary);
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+        }
+        
+        .protocol-selector {
+            margin-bottom: 20px;
+        }
+        
+        .protocol-selector label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+        
+        .protocol-selector select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 1rem;
+            background: white;
+        }
+        
+        .connection-status {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: 500;
+        }
+        
+        .status-disconnected {
+            background: #FEF3F2;
+            color: var(--danger);
+            border: 1px solid #FCA5A5;
+        }
+        
+        .status-connected {
+            background: #F0FDF4;
+            color: var(--success);
+            border: 1px solid #86EFAC;
+        }
+        
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            background: #EC7211;
+        }
+        
+        .btn-secondary {
+            background: var(--secondary);
+            color: white;
+        }
+        
+        .btn-secondary:hover:not(:disabled) {
+            background: #37475A;
+        }
+        
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+        
+        .btn-danger:hover:not(:disabled) {
+            background: #B91C1C;
+        }
+        
+        .main-panel {
+            background: var(--card);
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: var(--background);
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+        }
+        
+        .stat-card h4 {
+            color: var(--text-light);
+            font-size: 0.9rem;
+            font-weight: 400;
+            margin-bottom: 5px;
+        }
+        
+        .stat-card .value {
+            color: var(--secondary);
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        
+        .transcription-area {
+            margin-bottom: 30px;
+        }
+        
+        .transcription-area h3 {
+            color: var(--secondary);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .transcript-box {
+            background: var(--background);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 20px;
+            min-height: 300px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .transcript-item {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            border-left: 3px solid var(--primary);
+        }
+        
+        .transcript-partial {
+            opacity: 0.7;
+            border-left-color: var(--border);
+        }
+        
+        .entities-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        
+        .entity-category {
+            background: var(--background);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 15px;
+        }
+        
+        .entity-category h4 {
+            color: var(--secondary);
+            margin-bottom: 10px;
+            font-size: 1rem;
+        }
+        
+        .entity-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        
+        .entity-tag {
+            background: white;
+            border: 1px solid var(--border);
+            padding: 4px 8px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: var(--text);
+        }
+        
+        .volume-meter {
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+        
+        .volume-bar {
+            height: 100%;
+            background: var(--primary);
+            width: 0%;
+            transition: width 0.1s ease-out;
+        }
+        
+        .info-section {
+            background: #FFF8E6;
+            border: 1px solid #FDB924;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        
+        .info-section h4 {
+            color: var(--secondary);
+            margin-bottom: 10px;
+        }
+        
+        .info-section p {
+            color: var(--text);
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .recording-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            background: var(--danger);
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="container">
+            <h1>AWS Transcribe Medical Direct API</h1>
+            <p>Real-time medical transcription using StartMedicalStreamTranscription</p>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="main-content">
+            <div class="sidebar">
+                <h3>Configuration</h3>
+                
+                <div class="protocol-selector">
+                    <label for="protocol">Protocol</label>
+                    <select id="protocol">
+                        <option value="websocket">WebSocket</option>
+                        <option value="http2">HTTP/2</option>
+                        <option value="unified">Auto-Select</option>
+                    </select>
+                </div>
+                
+                <div class="connection-status status-disconnected" id="connectionStatus">
+                    Disconnected
+                </div>
+                
+                <div class="controls">
+                    <button class="btn-primary" onclick="connect()" id="connectBtn">
+                        Connect
+                    </button>
+                    <button class="btn-secondary" onclick="startRecording()" id="startBtn" disabled>
+                        Start Recording
+                    </button>
+                    <button class="btn-danger" onclick="stopRecording()" id="stopBtn" disabled>
+                        Stop Recording
+                    </button>
+                </div>
+                
+                <div class="volume-meter" id="volumeMeter" style="display: none;">
+                    <div class="volume-bar" id="volumeBar"></div>
+                </div>
+            </div>
+            
+            <div class="main-panel">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h4>Session ID</h4>
+                        <div class="value" id="sessionId">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <h4>Protocol</h4>
+                        <div class="value" id="activeProtocol">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <h4>Transcripts</h4>
+                        <div class="value" id="transcriptCount">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <h4>Medical Entities</h4>
+                        <div class="value" id="entityCount">0</div>
+                    </div>
+                </div>
+                
+                <div class="transcription-area">
+                    <h3>
+                        <span id="recordingIndicator" style="display: none;">
+                            <span class="recording-indicator"></span>
+                        </span>
+                        Live Transcription
+                    </h3>
+                    <div class="transcript-box" id="transcriptBox">
+                        <p style="color: var(--text-light); text-align: center;">
+                            Connect and start recording to see transcriptions...
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="entities-area">
+                    <h3>Medical Entities</h3>
+                    <div class="entities-grid" id="entitiesGrid">
+                        <p style="color: var(--text-light);">
+                            Medical entities will appear here...
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="info-section">
+            <h4>Direct API Information</h4>
+            <p><strong>Endpoint:</strong> <span id="endpointInfo">Not connected</span></p>
+            <p><strong>Features:</strong> Real-time medical transcription, entity detection, PHI identification</p>
+            <p><strong>Specialty:</strong> Primary Care | <strong>Type:</strong> Conversation</p>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let audioContext = null;
+        let microphone = null;
+        let processor = null;
+        let isRecording = false;
+        let sessionId = null;
+        let activeProtocol = null;
+        let transcriptCount = 0;
+        let entityCount = 0;
+        let entities = {};
+        
+        function updateConnectionStatus(connected) {
+            const status = document.getElementById('connectionStatus');
+            const connectBtn = document.getElementById('connectBtn');
+            const startBtn = document.getElementById('startBtn');
+            
+            if (connected) {
+                status.className = 'connection-status status-connected';
+                status.textContent = 'Connected';
+                connectBtn.textContent = 'Disconnect';
+                connectBtn.onclick = disconnect;
+                startBtn.disabled = false;
+            } else {
+                status.className = 'connection-status status-disconnected';
+                status.textContent = 'Disconnected';
+                connectBtn.textContent = 'Connect';
+                connectBtn.onclick = connect;
+                startBtn.disabled = true;
+                
+                // Reset stats
+                document.getElementById('sessionId').textContent = '-';
+                document.getElementById('activeProtocol').textContent = '-';
+                document.getElementById('endpointInfo').textContent = 'Not connected';
+            }
+        }
+        
+        async function connect() {
+            const protocol = document.getElementById('protocol').value;
+            let endpoint;
+            
+            switch (protocol) {
+                case 'websocket':
+                    endpoint = 'ws://localhost:8000/ws/medical/direct';
+                    break;
+                case 'http2':
+                    endpoint = 'ws://localhost:8000/ws/medical/http2';
+                    break;
+                case 'unified':
+                    endpoint = 'ws://localhost:8000/ws/medical/unified';
+                    break;
+            }
+            
+            try {
+                ws = new WebSocket(endpoint);
+                
+                ws.onopen = () => {
+                    console.log('Connected to Direct API');
+                    updateConnectionStatus(true);
+                    document.getElementById('endpointInfo').textContent = endpoint;
+                    
+                    // Send protocol selection for unified endpoint
+                    if (protocol === 'unified') {
+                        ws.send(JSON.stringify({
+                            type: 'select_protocol',
+                            protocol: 'websocket'  // Default preference
+                        }));
+                    }
+                };
+                
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    handleMessage(data);
+                };
+                
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    alert('Connection error. Check if the server is running.');
+                };
+                
+                ws.onclose = () => {
+                    console.log('Disconnected');
+                    updateConnectionStatus(false);
+                    if (isRecording) {
+                        stopRecording();
+                    }
+                };
+                
+            } catch (error) {
+                console.error('Connection failed:', error);
+                alert('Failed to connect: ' + error.message);
+            }
+        }
+        
+        function disconnect() {
+            if (isRecording) {
+                stopRecording();
+            }
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+        
+        function handleMessage(data) {
+            switch (data.type) {
+                case 'info':
+                    console.log('Server info:', data);
+                    break;
+                    
+                case 'session_started':
+                    sessionId = data.session_id;
+                    document.getElementById('sessionId').textContent = sessionId.substr(0, 8) + '...';
+                    document.getElementById('activeProtocol').textContent = data.protocol.toUpperCase();
+                    activeProtocol = data.protocol;
+                    break;
+                    
+                case 'protocol_selected':
+                    document.getElementById('activeProtocol').textContent = data.protocol.toUpperCase();
+                    activeProtocol = data.protocol;
+                    break;
+                    
+                case 'transcript':
+                    handleTranscript(data);
+                    break;
+                    
+                case 'session_ended':
+                    console.log('Session ended:', data);
+                    if (data.s3_key) {
+                        addSystemMessage(`Session saved to S3: ${data.s3_key}`);
+                    }
+                    if (data.summary) {
+                        console.log('Session summary:', data.summary);
+                    }
+                    break;
+                    
+                case 'error':
+                    console.error('Server error:', data.error);
+                    alert('Server error: ' + data.error);
+                    break;
+            }
+        }
+        
+        function handleTranscript(data) {
+            const transcript = data.transcript;
+            const text = transcript.text;
+            const isPartial = transcript.is_partial;
+            const entities = transcript.entities || [];
+            
+            // Update transcript display
+            updateTranscriptDisplay(text, isPartial);
+            
+            if (!isPartial) {
+                transcriptCount++;
+                document.getElementById('transcriptCount').textContent = transcriptCount;
+            }
+            
+            // Update entities
+            if (entities.length > 0) {
+                updateEntities(entities);
+            }
+        }
+        
+        function updateTranscriptDisplay(text, isPartial) {
+            const box = document.getElementById('transcriptBox');
+            
+            // Remove placeholder if exists
+            const placeholder = box.querySelector('p');
+            if (placeholder) {
+                placeholder.remove();
+            }
+            
+            if (isPartial) {
+                // Update or create partial transcript
+                let partial = box.querySelector('.transcript-partial');
+                if (!partial) {
+                    partial = document.createElement('div');
+                    partial.className = 'transcript-item transcript-partial';
+                    box.appendChild(partial);
+                }
+                partial.textContent = text;
+            } else {
+                // Remove partial and add final
+                const partial = box.querySelector('.transcript-partial');
+                if (partial) {
+                    partial.remove();
+                }
+                
+                const item = document.createElement('div');
+                item.className = 'transcript-item';
+                item.textContent = text;
+                box.appendChild(item);
+                
+                // Auto-scroll
+                box.scrollTop = box.scrollHeight;
+            }
+        }
+        
+        function updateEntities(newEntities) {
+            // Group entities by category
+            newEntities.forEach(entity => {
+                const category = entity.category || 'OTHER';
+                if (!entities[category]) {
+                    entities[category] = new Set();
+                }
+                entities[category].add(entity.text);
+                entityCount++;
+            });
+            
+            document.getElementById('entityCount').textContent = entityCount;
+            
+            // Update display
+            const grid = document.getElementById('entitiesGrid');
+            grid.innerHTML = '';
+            
+            Object.entries(entities).forEach(([category, items]) => {
+                const categoryDiv = document.createElement('div');
+                categoryDiv.className = 'entity-category';
+                
+                const title = document.createElement('h4');
+                title.textContent = formatCategory(category);
+                categoryDiv.appendChild(title);
+                
+                const list = document.createElement('div');
+                list.className = 'entity-list';
+                
+                items.forEach(text => {
+                    const tag = document.createElement('span');
+                    tag.className = 'entity-tag';
+                    tag.textContent = text;
+                    list.appendChild(tag);
+                });
+                
+                categoryDiv.appendChild(list);
+                grid.appendChild(categoryDiv);
+            });
+        }
+        
+        function formatCategory(category) {
+            const formats = {
+                'MEDICATION': '💊 Medications',
+                'MEDICAL_CONDITION': '🏥 Conditions',
+                'ANATOMY': '🫀 Anatomy',
+                'TEST_TREATMENT_PROCEDURE': '🔬 Procedures',
+                'PHI': '🔒 PHI',
+                'OTHER': '📋 Other'
+            };
+            return formats[category] || category;
+        }
+        
+        function addSystemMessage(message) {
+            const box = document.getElementById('transcriptBox');
+            const item = document.createElement('div');
+            item.className = 'transcript-item';
+            item.style.background = '#F0FDF4';
+            item.style.borderLeftColor = 'var(--success)';
+            item.textContent = '✅ ' + message;
+            box.appendChild(item);
+            box.scrollTop = box.scrollHeight;
+        }
+        
+        async function startRecording() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                alert('Please connect first');
+                return;
+            }
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 16000
+                });
+                
+                microphone = audioContext.createMediaStreamSource(stream);
+                processor = audioContext.createScriptProcessor(4096, 1, 1);
+                
+                processor.onaudioprocess = (event) => {
+                    if (!isRecording) return;
+                    
+                    const inputData = event.inputBuffer.getChannelData(0);
+                    const pcmData = convertTo16BitPCM(inputData);
+                    const base64 = btoa(String.fromCharCode(...new Uint8Array(pcmData.buffer)));
+                    
+                    // Send audio
+                    ws.send(JSON.stringify({
+                        type: 'audio',
+                        data: base64
+                    }));
+                    
+                    // Update volume meter
+                    updateVolumeMeter(inputData);
+                };
+                
+                microphone.connect(processor);
+                processor.connect(audioContext.destination);
+                
+                isRecording = true;
+                updateRecordingUI(true);
+                
+                console.log('Recording started');
+                
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                alert('Error accessing microphone: ' + error.message);
+            }
+        }
+        
+        function stopRecording() {
+            isRecording = false;
+            
+            if (processor) {
+                processor.disconnect();
+                processor = null;
+            }
+            if (microphone) {
+                microphone.disconnect();
+                microphone = null;
+            }
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            
+            // Send stop message
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'stop' }));
+            }
+            
+            updateRecordingUI(false);
+            console.log('Recording stopped');
+        }
+        
+        function updateRecordingUI(recording) {
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const volumeMeter = document.getElementById('volumeMeter');
+            const indicator = document.getElementById('recordingIndicator');
+            
+            if (recording) {
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                volumeMeter.style.display = 'block';
+                indicator.style.display = 'inline-block';
+            } else {
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                volumeMeter.style.display = 'none';
+                indicator.style.display = 'none';
+            }
+        }
+        
+        function convertTo16BitPCM(float32Array) {
+            const buffer = new ArrayBuffer(float32Array.length * 2);
+            const view = new Int16Array(buffer);
+            for (let i = 0; i < float32Array.length; i++) {
+                const sample = Math.max(-1, Math.min(1, float32Array[i]));
+                view[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+            }
+            return view;
+        }
+        
+        function updateVolumeMeter(data) {
+            let sum = 0;
+            for (let i = 0; i < data.length; i++) {
+                sum += Math.abs(data[i]);
+            }
+            const average = sum / data.length;
+            const percentage = Math.min(100, average * 300);
+            document.getElementById('volumeBar').style.width = percentage + '%';
+        }
+        
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (isRecording) {
+                stopRecording();
+            }
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html>
